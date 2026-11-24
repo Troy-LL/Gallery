@@ -1,9 +1,39 @@
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
-import { dotsFor, hueInWedge, pointInPolygon, selectionMatches, wheelPoint, hueSymbol, type LibraryRecord } from "@gallery/core";
+import {
+  dotsFor,
+  hueInWedge,
+  hueSymbol,
+  oklchToOklab,
+  oklabToRgb,
+  pointInPolygon,
+  rgbToHex,
+  selectionMatches,
+  wheelPoint,
+  type LibraryRecord,
+} from "@gallery/core";
 import type { PublicRecord } from "../api/client";
 import { classifyGesture, type WheelTool } from "./gesture";
 
 type Point = { x: number; y: number };
+
+const RING_CHROMA = 0.14;
+const RING_LIGHTNESS = 0.7;
+
+function canvasHueRadians(hue: number): number {
+  return ((hue - 90) * Math.PI) / 180;
+}
+
+function drawHueRing(context: CanvasRenderingContext2D, center: number, radius: number, lineWidth: number): void {
+  context.lineWidth = lineWidth;
+  context.lineCap = "butt";
+  for (let hue = 0; hue < 360; hue += 1) {
+    const rgb = oklabToRgb(oklchToOklab({ L: RING_LIGHTNESS, C: RING_CHROMA, h: hue }));
+    context.strokeStyle = rgbToHex(rgb.r, rgb.g, rgb.b);
+    context.beginPath();
+    context.arc(center, center, radius, canvasHueRadians(hue), canvasHueRadians(hue + 1));
+    context.stroke();
+  }
+}
 
 export function Wheel(props: {
   records: PublicRecord[];
@@ -18,23 +48,20 @@ export function Wheel(props: {
   const drag = useRef<{ start: Point; points: Point[]; radius: number } | null>(null);
   const size = props.large ? 520 : 240;
   const records = props.records.map((record) => ({ ...record, embedding: null })) as LibraryRecord[];
+  const ringRadius = size * 0.42;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
+    const center = size / 2;
     context.clearRect(0, 0, size, size);
-    context.fillStyle = "#1c1916";
-    context.fillRect(0, 0, size, size);
-    context.strokeStyle = "#3a342c";
-    context.beginPath();
-    context.arc(size / 2, size / 2, size * 0.42, 0, Math.PI * 2);
-    context.stroke();
+    drawHueRing(context, center, ringRadius, 2);
     const dots = records.flatMap((record) => dotsFor(record, props.multiSwatch ? "all" : "dominant", 0.08));
     for (const dot of dots) {
       const point = wheelPoint(dot.oklch, Math.max(props.maxChroma, 0.001));
-      const x = size / 2 + point.x * size * 0.42;
-      const y = size / 2 - point.y * size * 0.42;
+      const x = center + point.x * ringRadius;
+      const y = center - point.y * ringRadius;
       context.fillStyle = dot.hex;
       context.beginPath();
       context.arc(x, y, 5, 0, Math.PI * 2);
@@ -45,7 +72,7 @@ export function Wheel(props: {
         context.fillText(hueSymbol(dot.oklch.h), x + 6, y);
       }
     }
-  }, [records, props.maxChroma, props.multiSwatch, props.colorBlind, size]);
+  }, [records, props.maxChroma, props.multiSwatch, props.colorBlind, size, ringRadius]);
 
   function localPoint(event: ReactPointerEvent<HTMLCanvasElement>): Point {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -90,22 +117,26 @@ export function Wheel(props: {
   }
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={size}
-      height={size}
-      aria-label="Color wheel"
-      tabIndex={0}
-      onPointerDown={(event) => {
-        const start = localPoint(event);
-        drag.current = { start, points: [start], radius: Math.hypot(start.x, start.y) };
-      }}
-      onPointerMove={(event) => {
-        if (!drag.current) return;
-        drag.current.points.push(localPoint(event));
-      }}
-      onPointerUp={finish}
-    />
+    <div className="wheel-minimap">
+      <span className="wheel-label wheel-label--hue">HUE</span>
+      <span className="wheel-label wheel-label--saturation">SATURATION: less → more</span>
+      <canvas
+        ref={canvasRef}
+        width={size}
+        height={size}
+        aria-label="Color wheel"
+        tabIndex={0}
+        onPointerDown={(event) => {
+          const start = localPoint(event);
+          drag.current = { start, points: [start], radius: Math.hypot(start.x, start.y) };
+        }}
+        onPointerMove={(event) => {
+          if (!drag.current) return;
+          drag.current.points.push(localPoint(event));
+        }}
+        onPointerUp={finish}
+      />
+    </div>
   );
 }
 

@@ -14,8 +14,7 @@ export function classifyGesture(tool: WheelTool, radius: number, moved: number):
     case "lasso":
       return "lasso";
     case "auto":
-      if (radius > 0.86) return "wedge";
-      if (moved > 0.03) return "lasso";
+      if (radius > 0.86 || moved > 0.03) return "wedge";
       return "click";
     default: {
       const unreachable: never = tool;

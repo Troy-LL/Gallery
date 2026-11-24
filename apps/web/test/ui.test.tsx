@@ -20,7 +20,7 @@ function mockFetchEmpty() {
 describe("ui helpers", () => {
   it("classifies wheel gestures and window ranges", () => {
     expect(classifyGesture("auto", 0.9, 0)).toBe("wedge");
-    expect(classifyGesture("auto", 0.2, 0.2)).toBe("lasso");
+    expect(classifyGesture("auto", 0.2, 0.2)).toBe("wedge");
     expect(classifyGesture("auto", 0.2, 0)).toBe("click");
     expect(visibleRange(0, 200, 100, 40, 4)).toEqual({ start: 0, end: 16 });
   });
