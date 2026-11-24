@@ -1,0 +1,10 @@
+aside canvas[aria-label="Color wheel"] {
+  display: block;
+  max-width: 100%;
+}
+
+aside > p {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
