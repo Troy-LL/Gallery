@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
-import { reduceWheelKey, type Facets, type FilterChip, type PlatformConfig } from "@gallery/core";
+import type { Facets, FilterChip, PlatformConfig } from "@gallery/core";
 import { emptyQuery, estimate, loadPlatforms, queryLibrary, seedLibrary, type PublicRecord } from "./api/client";
 import { Grid } from "./grid/Grid";
 import { Lightbox } from "./lightbox/Lightbox";
@@ -34,7 +34,7 @@ export function App() {
   const [focus, setFocus] = useState<"compare" | "focus">("compare");
   const [tool, setTool] = useState<WheelTool>("auto");
   const [multiSwatch, setMultiSwatch] = useState(false);
-  const [cursor, setCursor] = useState({ hue: 0, radius: 0.4, brush: 0.08 });
+  const [large, setLarge] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [gridFocusId, setGridFocusId] = useState<string | null>(null);
   const [estimateLabel, setEstimateLabel] = useState<string | null>(null);
@@ -138,7 +138,8 @@ export function App() {
     maxChroma,
     tool,
     multiSwatch,
-    large: false,
+    large,
+    selectedIds: wheelSelection,
     onSelect: (ids, gestureMode) => {
       const next = gestureMode === "replace" ? ids : gestureMode === "add" ? [...new Set([...wheelSelection, ...ids])] : wheelSelection.filter((id) => !ids.includes(id));
       setWheelSelection(next);
@@ -270,8 +271,7 @@ export function App() {
             wheelSlot={wheelSlot}
             tool={tool}
             onTool={setTool}
-            cursor={cursor}
-            onCursorKey={(key) => setCursor(reduceWheelKey(cursor, key))}
+            onLarge={setLarge}
             facets={facets}
             onFacets={(next) => {
               setFacets(next);
