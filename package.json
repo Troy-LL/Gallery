@@ -11,10 +11,11 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
-    "gallery-eval": "tsx packages/importer/src/eval/cli.ts",
-    "dev:api": "tsx apps/api/src/cli.ts",
+    "gallery-eval": "tsx --env-file-if-exists=.env packages/importer/src/eval/cli.ts",
+    "dev:api": "tsx --env-file-if-exists=.env apps/api/src/cli.ts",
     "dev:web": "node apps/web/node_modules/vite/bin/vite.js --config apps/web/vite.config.ts --host 127.0.0.1 --port 5173",
-    "bench": "tsx scripts/bench-10k.ts"
+    "bench": "tsx scripts/bench-10k.ts",
+    "import:takeout": "tsx --env-file-if-exists=.env scripts/import-takeout.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.14",

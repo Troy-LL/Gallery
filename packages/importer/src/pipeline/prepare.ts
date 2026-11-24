@@ -22,7 +22,7 @@ export function isIgnoredMedia(filename: string): boolean {
 
 export async function prepareStill(
   input: Buffer,
-  source: { sourceType: SourceType; sourceRef: string | null; addedAt?: string },
+  source: { sourceType: SourceType; sourceRef: string | null; addedAt?: string; takenAt?: string | null },
   limits: { workingPx: number } = { workingPx: 2048 },
 ): Promise<PreparedStill> {
   const hash = createHash("sha256").update(input).digest("hex");
@@ -49,6 +49,7 @@ export async function prepareStill(
   const jev = await encodeJev(working.data);
   if (!isBaselineJpeg(jev)) throw new Error("jev copy is not baseline jpeg");
   const addedAt = source.addedAt ?? new Date().toISOString();
+  const takenAt = exif.takenAt ?? source.takenAt ?? null;
   return {
     working: working.data,
     thumbnail,
@@ -61,13 +62,13 @@ export async function prepareStill(
       file_size: working.data.length + thumbnail.length,
       hash,
       phash: averageHash(hashSample),
-      created_at: exif.takenAt ?? addedAt,
+      created_at: takenAt ?? addedAt,
       added_at: addedAt,
       media_type: "image/jpeg",
       source_type: source.sourceType,
       source_ref: source.sourceRef,
       embedding: deterministicEmbedding(working.data),
-      taken_at: exif.takenAt,
+      taken_at: takenAt,
       lat: exif.lat,
       lon: exif.lon,
       place_name: null,
