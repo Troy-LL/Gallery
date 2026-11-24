@@ -1,6 +1,14 @@
 import { layoutPreview, type PlatformConfig } from "@gallery/core";
 import type { PublicRecord } from "../api/client";
 
+function pickSurface(platform: PlatformConfig, imageCount: number) {
+  return (
+    platform.surfaces.find(
+      (surface) => imageCount >= surface.min_images && imageCount <= surface.max_images,
+    ) ?? platform.surfaces[0]
+  );
+}
+
 export function Preview(props: {
   records: PublicRecord[];
   orderedIds: string[];
@@ -18,52 +26,69 @@ export function Preview(props: {
   const ordered = props.orderedIds
     .map((id) => props.records.find((record) => record.id === id))
     .filter((record): record is PublicRecord => Boolean(record));
-  const platforms = props.focus === "focus" ? props.platforms.filter((item) => item.id === props.platformId) : props.platforms;
+  const previewImages = ordered.map((record) => ({
+    width: record.width,
+    height: record.height,
+    subjectBox: record.subject_box,
+  }));
+
   return (
-    <section className={`preview theme-${props.theme}`}>
-      <div className="preview-bar">
-        {props.platforms.map((platform) => (
-          <button key={platform.id} aria-pressed={platform.id === props.platformId} onClick={() => props.onPlatform(platform.id)}>
-            {platform.id}
-          </button>
-        ))}
-        <button aria-pressed={props.theme === "light"} onClick={() => props.onTheme("light")}>Light</button>
-        <button aria-pressed={props.theme === "dark"} onClick={() => props.onTheme("dark")}>Dark</button>
-        <button aria-pressed={props.focus === "compare"} onClick={() => props.onFocus("compare")}>Compare</button>
-        <button aria-pressed={props.focus === "focus"} onClick={() => props.onFocus("focus")}>Focus</button>
-      </div>
-      <label>
-        Caption
-        <textarea aria-label="Caption" value={props.caption} onChange={(event) => props.onCaption(event.target.value)} />
-      </label>
-      <ol className="order">
-        {ordered.map((record) => (
+    <section className="preview" aria-label="Crop previews">
+      <ol className="order" aria-label="Image order">
+        {ordered.map((record, index) => (
           <li key={record.id}>
             <img src={`/api/media/${record.id}?kind=thumb`} alt="" />
-            <button onClick={() => props.onMove(record.id, -1)}>Move earlier</button>
-            <button onClick={() => props.onMove(record.id, 1)}>Move later</button>
+            <span className="order-index" aria-hidden="true">
+              {index + 1}
+            </span>
+            <button type="button" disabled={index === 0} onClick={() => props.onMove(record.id, -1)}>
+              Move earlier
+            </button>
+            <button
+              type="button"
+              disabled={index === ordered.length - 1}
+              onClick={() => props.onMove(record.id, 1)}
+            >
+              Move later
+            </button>
           </li>
         ))}
       </ol>
       <div className="cards">
-        {platforms.map((platform) => {
-          const surface = platform.surfaces[0];
+        {props.platforms.map((platform) => {
+          const surface = pickSurface(platform, ordered.length);
           if (!surface) return null;
+          const slice = ordered.slice(0, surface.max_images);
+          if (slice.length === 0) return null;
           const layout = layoutPreview({
             config: platform,
             surfaceId: surface.id,
-            caption: props.caption,
-            images: ordered.map((record) => ({ width: record.width, height: record.height, subjectBox: record.subject_box })),
+            caption: "",
+            images: previewImages.slice(0, surface.max_images),
           });
+          const columns = surface.kind === "grid" ? (surface.columns ?? 2) : 1;
           return (
             <article key={platform.id} className="card" data-platform={platform.id}>
-              <p className="preview-label">{layout.previewLabel}</p>
-              <p className="who">{platform.frame_tokens.name}</p>
-              <div className="frame" style={{ aspectRatio: String(layout.aspect) }}>
-                {ordered[0] ? <img src={`/api/media/${ordered[0].id}?kind=working`} alt="" /> : null}
+              <header className="card-head">
+                <h2>{platform.id}</h2>
+                <p>{surface.label}</p>
+              </header>
+              <div
+                className="frames"
+                data-kind={surface.kind}
+                style={surface.kind === "grid" ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}
+              >
+                {slice.map((record, index) => (
+                  <div
+                    key={record.id}
+                    className="frame"
+                    style={{ aspectRatio: String(layout.aspect) }}
+                    data-slide={index + 1}
+                  >
+                    <img src={`/api/media/${record.id}?kind=working`} alt="" />
+                  </div>
+                ))}
               </div>
-              <p>{layout.caption}{layout.seeMore ? " see more" : ""}</p>
-              {layout.badge ? <p className="badge">{layout.badge.label}</p> : null}
             </article>
           );
         })}
@@ -71,4 +96,3 @@ export function Preview(props: {
     </section>
   );
 }
-
