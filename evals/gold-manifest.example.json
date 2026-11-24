@@ -1,0 +1,11 @@
+{
+  "model_version": "jev-1.14.0",
+  "vocab_version": "v1",
+  "images": [
+    {
+      "id": "gold-1",
+      "labels": { "time_of_day": "daylight", "has_text": false },
+      "subject_box": { "top": 0.1, "bottom": 0.6, "left": 0.2, "right": 0.7 }
+    }
+  ]
+}
