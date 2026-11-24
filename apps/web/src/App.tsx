@@ -6,8 +6,10 @@ import { Lightbox } from "./lightbox/Lightbox";
 import { Preview } from "./preview/Preview";
 import { Tray } from "./tray/Tray";
 import { Wheel } from "./wheel/Wheel";
-import { WheelToolMenu } from "./wheel/WheelToolMenu";
 import type { WheelTool } from "./wheel/gesture";
+import { GridHeader } from "./shell/GridHeader";
+import { Rail } from "./shell/Rail";
+import { TopBar, type WorkspaceMode } from "./shell/TopBar";
 
 /** Stable wheel slot — PR-06 may edit wheel files only. */
 export type WheelSlotProps = ComponentProps<typeof Wheel>;
@@ -16,7 +18,8 @@ export type WheelSlotProps = ComponentProps<typeof Wheel>;
 export type PreviewSlotProps = ComponentProps<typeof Preview>;
 
 export function App() {
-  const [records, setRecords] = useState<PublicRecord[]>([]);
+  const [libraryRecords, setLibraryRecords] = useState<PublicRecord[]>([]);
+  const [gridRecords, setGridRecords] = useState<PublicRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [matched, setMatched] = useState(0);
   const [maxChroma, setMaxChroma] = useState(0.2);
@@ -39,22 +42,37 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [stripExif, setStripExif] = useState(true);
   const [importOpen, setImportOpen] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [mode, setMode] = useState<WorkspaceMode>("gallery");
+  const [tile, setTile] = useState(160);
   const addPhotosRef = useRef<HTMLButtonElement>(null);
   const importPopoverRef = useRef<HTMLDivElement>(null);
 
-  const hasLibrary = records.length > 0;
   const trayReady = trayIds.length > 0;
-  const showWorkspace = hasLibrary || Boolean(error);
-  const visibleIds = records.map((record) => record.id);
+  const showWorkspace = total > 0 || Boolean(error);
+  const gridEmpty = gridRecords.length === 0;
+  const visibleIds = gridRecords.map((record) => record.id);
+  const needsTags = gridRecords.filter((record) => record.needs_tags).length;
 
   async function reload(nextFacets = facets, ids = wheelSelection) {
-    const selection = ids.length > 0 ? { type: "ids" as const, ids } : { type: "all" as const };
-    const result = await queryLibrary(emptyQuery(nextFacets, selection));
-    setRecords(result.records);
-    setTotal(result.total);
-    setMatched(result.matched);
-    setMaxChroma(result.maxChroma || 0.2);
+    const libraryResult = await queryLibrary(emptyQuery(nextFacets, { type: "all" }));
+    setLibraryRecords(libraryResult.records);
+    setTotal(libraryResult.total);
+    setMatched(libraryResult.matched);
+    setMaxChroma(libraryResult.maxChroma || 0.2);
+
+    if (ids.length > 0) {
+      const gridResult = await queryLibrary(emptyQuery(nextFacets, { type: "ids", ids }));
+      setGridRecords(gridResult.records);
+    } else {
+      setGridRecords(libraryResult.records);
+    }
+  }
+
+  function clearFilters() {
+    setFacets({});
+    setChips([]);
+    setWheelSelection([]);
+    void reload({}, []);
   }
 
   useEffect(() => {
@@ -77,10 +95,10 @@ export function App() {
   }, [importOpen]);
 
   useEffect(() => {
-    if (!trayReady && previewOpen) setPreviewOpen(false);
-  }, [trayReady, previewOpen]);
+    if (!trayReady && mode === "preview") setMode("gallery");
+  }, [trayReady, mode]);
 
-  const open = records.find((record) => record.id === openId) ?? null;
+  const open = gridRecords.find((record) => record.id === openId) ?? null;
 
   function toggleTrayId(id: string) {
     setTrayIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
@@ -95,8 +113,28 @@ export function App() {
     setGridFocusId(id);
   }
 
+  function onExport() {
+    if (!trayReady) return;
+    void fetch("/api/export", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ imageIds: trayIds, platform: platformId, keepExif: !stripExif }),
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await response.text());
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${platformId}.zip`;
+        link.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Export failed"));
+  }
+
   const wheelSlot: WheelSlotProps = {
-    records,
+    records: libraryRecords,
     maxChroma,
     tool,
     multiSwatch,
@@ -109,7 +147,7 @@ export function App() {
   };
 
   const previewSlot: PreviewSlotProps = {
-    records,
+    records: gridRecords,
     orderedIds: trayIds,
     platforms,
     caption,
@@ -134,215 +172,120 @@ export function App() {
     onFocus: setFocus,
   };
 
-  return (
-    <div className="app">
-      <header>
-        <h1>Color Wheel Gallery</h1>
-        <div className="top-bar" role="toolbar" aria-label="Workspace actions">
-          <div className="top-bar-primary">
-            <button
-              ref={addPhotosRef}
-              type="button"
-              className="chrome-btn"
-              aria-expanded={importOpen}
-              aria-haspopup="menu"
-              onClick={() => setImportOpen((value) => !value)}
-            >
-              Add photos
-            </button>
-            {importOpen ? (
-              <div
-                ref={importPopoverRef}
-                className="import-popover"
-                role="menu"
-                style={{ transformOrigin: "top left" }}
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    void estimate(24).then((result) => setEstimateLabel(result.label));
-                  }}
-                >
-                  Sample library
-                </button>
-                {estimateLabel ? (
-                  <p role="status">
-                    {estimateLabel}
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        void seedLibrary(24).then(() => {
-                          setEstimateLabel(null);
-                          setImportOpen(false);
-                          setWheelSelection([]);
-                          return reload(facets, []);
-                        });
-                      }}
-                    >
-                      Confirm import
-                    </button>
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-            {showWorkspace ? (
-              <>
-                <button
-                  type="button"
-                  className="chrome-btn"
-                  aria-pressed={previewOpen}
-                  disabled={!trayReady}
-                  title={trayReady ? undefined : "Add photos to the set"}
-                  onClick={() => {
-                    if (trayReady) setPreviewOpen((value) => !value);
-                  }}
-                >
-                  Preview
-                </button>
-                <button
-                  type="button"
-                  className="chrome-btn"
-                  disabled={!trayReady}
-                  title={trayReady ? undefined : "Add photos to the set"}
-                  onClick={() => {
-                    if (!trayReady) return;
-                    void fetch("/api/export", {
-                      method: "POST",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify({ imageIds: trayIds, platform: platformId, keepExif: !stripExif }),
-                    }).then(async (response) => {
-                      if (!response.ok) throw new Error(await response.text());
-                      const blob = await response.blob();
-                      const url = URL.createObjectURL(blob);
-                      const link = document.createElement("a");
-                      link.href = url;
-                      link.download = `${platformId}.zip`;
-                      link.click();
-                      URL.revokeObjectURL(url);
-                    }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Export failed"));
-                  }}
-                >
-                  Export
-                </button>
-                {!trayReady ? <span className="tray-hint">Add photos to the set</span> : null}
-              </>
-            ) : null}
-          </div>
-          {showWorkspace ? (
-            <div className="top-bar-filters">
-              <div className="chips" aria-label="Active filters">
-                {chips.map((chip) => (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    onClick={() => {
-                      const nextChips = chips.filter((item) => item.id !== chip.id);
-                      setChips(nextChips);
-                      const next: Facets = {};
-                      for (const item of nextChips) Object.assign(next, item.facets);
-                      setFacets(next);
-                      void reload(next, wheelSelection);
-                    }}
-                  >
-                    {chip.label}
-                  </button>
-                ))}
-                <span>{matched} of {total}</span>
-              </div>
-              <div className="filters">
-                {(["portrait", "landscape", "square"] as const).map((orientation) => (
-                  <button
-                    key={orientation}
-                    type="button"
-                    aria-pressed={facets.orientation?.[0] === orientation}
-                    onClick={() => {
-                      const next = { ...facets, orientation: facets.orientation?.[0] === orientation ? undefined : [orientation] };
-                      setFacets(next);
-                      void reload(next, wheelSelection);
-                    }}
-                  >
-                    {orientation}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </header>
-      {error ? <p role="status">{error}</p> : null}
-      {paused ? <p className="banner">Queue paused</p> : null}
-      <div className="workspace">
-        {hasLibrary ? (
-          <aside>
-            <div className="wheel-rail">
-              <Wheel {...wheelSlot} />
-              <WheelToolMenu value={tool} onChange={setTool} />
-            </div>
-            <div
-              aria-label="Wheel keys"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === " ") {
-                  event.preventDefault();
-                  return;
-                }
-                setCursor(reduceWheelKey(cursor, event.key));
-              }}
+  function renderCanvas() {
+    switch (mode) {
+      case "gallery":
+        return (
+          <>
+            <GridHeader
+              matched={matched}
+              total={total}
+              selectedCount={trayIds.length}
+              needsTags={needsTags}
+              onSelectAll={addVisibleToTray}
+              tile={tile}
+              onTile={setTile}
             />
-            <p>Cursor hue {Math.round(cursor.hue)} radius {cursor.radius.toFixed(2)} brush {cursor.brush.toFixed(2)}</p>
-            <label>
-              Lightness
-              <input
-                aria-label="Lightness"
-                type="range"
-                min={0}
-                max={100}
-                defaultValue={100}
-                onChange={(event) => {
-                  const max = Number(event.target.value) / 100;
-                  const next = { ...facets, lightness: { min: 0, max } };
-                  setFacets(next);
-                  void reload(next, wheelSelection);
-                }}
-              />
-            </label>
-            <button
-              type="button"
-              aria-pressed={facets.monochrome === true}
-              onClick={() => {
-                const next = { ...facets, monochrome: facets.monochrome ? undefined : true };
-                setFacets(next);
-                void reload(next, wheelSelection);
-              }}
-            >
-              Monochrome
-            </button>
-            <button type="button" aria-pressed={multiSwatch} onClick={() => setMultiSwatch((value) => !value)}>Multi-swatch</button>
-          </aside>
-        ) : null}
-        <main>
-          <div className="main-stage">
-            {hasLibrary ? (
+            {gridEmpty && total > 0 ? (
+              <div className="grid-wrap">
+                <p>No photos match</p>
+                <button type="button" className="chrome-btn" onClick={clearFilters}>
+                  Clear filters
+                </button>
+              </div>
+            ) : (
               <Grid
-                records={records}
+                records={gridRecords}
                 trayIds={trayIds}
                 focusId={gridFocusId}
                 onFocus={setGridFocusId}
                 onToggle={toggleTrayId}
                 onInspect={openInspect}
+                tile={tile}
+                onTile={setTile}
               />
-            ) : null}
-            {previewOpen && trayReady ? (
-              <div className="preview-panel" aria-label="Post preview">
-                <Preview {...previewSlot} />
-              </div>
-            ) : null}
+            )}
+          </>
+        );
+      case "preview":
+        return (
+          <div className="preview-panel" aria-label="Post preview">
+            <Preview {...previewSlot} />
           </div>
-          {hasLibrary ? (
+        );
+      default: {
+        const unreachable: never = mode;
+        return unreachable;
+      }
+    }
+  }
+
+  return (
+    <div className="app">
+      <TopBar
+        showWorkspace={showWorkspace}
+        mode={mode}
+        onMode={setMode}
+        trayReady={trayReady}
+        importOpen={importOpen}
+        onImportOpen={setImportOpen}
+        addPhotosRef={addPhotosRef}
+        importPopoverRef={importPopoverRef}
+        estimateLabel={estimateLabel}
+        onEstimate={() => {
+          void estimate(24).then((result) => setEstimateLabel(result.label));
+        }}
+        onConfirmImport={() => {
+          void seedLibrary(24).then(() => {
+            setEstimateLabel(null);
+            setImportOpen(false);
+            setWheelSelection([]);
+            return reload(facets, []);
+          });
+        }}
+        onExport={onExport}
+        matched={matched}
+        total={total}
+        chips={chips}
+        onRemoveChip={(chipId) => {
+          const nextChips = chips.filter((item) => item.id !== chipId);
+          setChips(nextChips);
+          const next: Facets = {};
+          for (const item of nextChips) Object.assign(next, item.facets);
+          setFacets(next);
+          void reload(next, wheelSelection);
+        }}
+        facets={facets}
+        onOrientation={(orientation) => {
+          const next = { ...facets, orientation: facets.orientation?.[0] === orientation ? undefined : [orientation] };
+          setFacets(next);
+          void reload(next, wheelSelection);
+        }}
+      />
+      {error ? <p role="status">{error}</p> : null}
+      {paused ? <p className="banner">Queue paused</p> : null}
+      <div className="workspace">
+        {total > 0 ? (
+          <Rail
+            wheelSlot={wheelSlot}
+            tool={tool}
+            onTool={setTool}
+            cursor={cursor}
+            onCursorKey={(key) => setCursor(reduceWheelKey(cursor, key))}
+            facets={facets}
+            onFacets={(next) => {
+              setFacets(next);
+              void reload(next, wheelSelection);
+            }}
+            multiSwatch={multiSwatch}
+            onMultiSwatch={setMultiSwatch}
+          />
+        ) : null}
+        <main>
+          <div className="main-stage">{showWorkspace ? renderCanvas() : null}</div>
+          {total > 0 && mode === "gallery" ? (
             <Tray
-              records={records}
+              records={gridRecords}
               orderedIds={trayIds}
               visibleIds={visibleIds}
               onReorder={setTrayIds}
@@ -358,7 +301,7 @@ export function App() {
       {open ? (
         <Lightbox
           record={open}
-          records={records}
+          records={gridRecords}
           onClose={() => setOpenId(null)}
           onNavigate={setOpenId}
           onChange={() => void reload()}

@@ -1,0 +1,30 @@
+.lightbox {
+  position: fixed;
+  inset: 5vh 10vw;
+  background: var(--elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chrome);
+  padding: 16px;
+  overflow: auto;
+  box-shadow: 0 24px 48px -12px rgb(20 20 19 / 0.18);
+}
+
+.lightbox img {
+  max-width: 100%;
+  max-height: 50vh;
+}
+
+.swatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.swatches button {
+  min-width: 5.5rem;
+  text-align: left;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
