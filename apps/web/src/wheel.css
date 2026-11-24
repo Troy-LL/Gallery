@@ -1,6 +1,37 @@
-aside canvas[aria-label="Color wheel"] {
+.wheel-minimap {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.wheel-minimap canvas {
   display: block;
   max-width: 100%;
+}
+
+.wheel-label {
+  position: absolute;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.wheel-label--hue {
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.wheel-label--saturation {
+  right: 4%;
+  top: 52%;
+  max-width: 9rem;
+  line-height: 1.2;
+  text-align: left;
+  transform: translateY(-50%);
 }
 
 aside > p {
