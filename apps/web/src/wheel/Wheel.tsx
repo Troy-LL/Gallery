@@ -2,7 +2,6 @@ import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react
 import {
   dotsFor,
   hueInWedge,
-  hueSymbol,
   oklchToOklab,
   oklabToRgb,
   pointInPolygon,
@@ -39,7 +38,6 @@ export function Wheel(props: {
   records: PublicRecord[];
   maxChroma: number;
   tool: WheelTool;
-  colorBlind: boolean;
   multiSwatch: boolean;
   large?: boolean;
   onSelect: (ids: string[], mode: "replace" | "add" | "subtract") => void;
@@ -66,13 +64,8 @@ export function Wheel(props: {
       context.beginPath();
       context.arc(x, y, 5, 0, Math.PI * 2);
       context.fill();
-      if (props.colorBlind) {
-        context.fillStyle = "#f4efe6";
-        context.font = "10px sans-serif";
-        context.fillText(hueSymbol(dot.oklch.h), x + 6, y);
-      }
     }
-  }, [records, props.maxChroma, props.multiSwatch, props.colorBlind, size, ringRadius]);
+  }, [records, props.maxChroma, props.multiSwatch, size, ringRadius]);
 
   function localPoint(event: ReactPointerEvent<HTMLCanvasElement>): Point {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -118,8 +111,6 @@ export function Wheel(props: {
 
   return (
     <div className="wheel-minimap">
-      <span className="wheel-label wheel-label--hue">HUE</span>
-      <span className="wheel-label wheel-label--saturation">SATURATION: less → more</span>
       <canvas
         ref={canvasRef}
         width={size}
