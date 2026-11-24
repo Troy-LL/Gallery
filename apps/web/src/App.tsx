@@ -6,6 +6,7 @@ import { Lightbox } from "./lightbox/Lightbox";
 import { Preview } from "./preview/Preview";
 import { Tray } from "./tray/Tray";
 import { Wheel } from "./wheel/Wheel";
+import { WheelToolMenu } from "./wheel/WheelToolMenu";
 import type { WheelTool } from "./wheel/gesture";
 
 /** Stable wheel slot — PR-06 may edit wheel files only. */
@@ -29,7 +30,6 @@ export function App() {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [focus, setFocus] = useState<"compare" | "focus">("compare");
   const [tool, setTool] = useState<WheelTool>("auto");
-  const [colorBlind, setColorBlind] = useState(false);
   const [multiSwatch, setMultiSwatch] = useState(false);
   const [cursor, setCursor] = useState({ hue: 0, radius: 0.4, brush: 0.08 });
   const [openId, setOpenId] = useState<string | null>(null);
@@ -99,7 +99,6 @@ export function App() {
     records,
     maxChroma,
     tool,
-    colorBlind,
     multiSwatch,
     large: false,
     onSelect: (ids, gestureMode) => {
@@ -277,7 +276,10 @@ export function App() {
       <div className="workspace">
         {hasLibrary ? (
           <aside>
-            <Wheel {...wheelSlot} />
+            <div className="wheel-rail">
+              <Wheel {...wheelSlot} />
+              <WheelToolMenu value={tool} onChange={setTool} />
+            </div>
             <div
               aria-label="Wheel keys"
               tabIndex={0}
@@ -317,14 +319,7 @@ export function App() {
             >
               Monochrome
             </button>
-            <label>
-              Tool
-              <select aria-label="Wheel tool" value={tool} onChange={(event) => setTool(event.target.value as WheelTool)}>
-                {["auto", "wedge", "lasso", "ring", "brush", "eyedropper"].map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
             <button type="button" aria-pressed={multiSwatch} onClick={() => setMultiSwatch((value) => !value)}>Multi-swatch</button>
-            <button type="button" aria-pressed={colorBlind} onClick={() => setColorBlind((value) => !value)}>Color-blind safe</button>
           </aside>
         ) : null}
         <main>

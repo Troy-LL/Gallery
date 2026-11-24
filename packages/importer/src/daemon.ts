@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { LibraryStore } from "@gallery/storage";
 import { isIgnoredMedia } from "./pipeline/prepare.js";
-import { readTakeout } from "./takeout.js";
+import { iterateTakeoutZip, listTakeoutZips } from "./takeout.js";
 
 export async function tickImporter(input: {
   store: LibraryStore;
@@ -60,10 +60,8 @@ async function importTakeoutDir(
   renew: () => Promise<boolean>,
 ): Promise<{ imported: number; stoodDown: boolean }> {
   let imported = 0;
-  for (const name of readdirSync(directory)) {
-    if (!name.endsWith(".zip")) continue;
-    const entries = readTakeout(readFileSync(join(directory, name)));
-    for (const entry of entries) {
+  for (const zipPath of listTakeoutZips(directory)) {
+    for (const entry of iterateTakeoutZip(zipPath)) {
       if (!(await renew())) return { imported, stoodDown: true };
       await importFile(entry.bytes, { sourceType: "google_photos", sourceRef: entry.sourceRef, takenAt: entry.takenAt });
       imported += 1;

@@ -9,7 +9,7 @@ export { fittedJevPixels, isBaselineJpeg, targetJevSize } from "./pipeline/size.
 export { runTagQueue } from "./queue/run.js";
 export { RetryableStatus, withStatusRetry } from "./queue/retry.js";
 export { sidecarDocument, writeSidecar } from "./sidecar.js";
-export { readTakeout } from "./takeout.js";
+export { iterateTakeoutZip, listTakeoutZips, readTakeout } from "./takeout.js";
 export { analyzeImage } from "./vision/analyze.js";
 export { buildQuestions } from "./vision/questions.js";
 export { createTypeSafeVision, DANGER_HEADER, photoAsset } from "./vision/typesafe.js";

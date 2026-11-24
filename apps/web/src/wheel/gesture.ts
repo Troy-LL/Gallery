@@ -1,4 +1,13 @@
 export type WheelTool = "auto" | "wedge" | "lasso" | "ring" | "brush" | "eyedropper";
+
+export const WHEEL_TOOLS: readonly WheelTool[] = [
+  "auto",
+  "wedge",
+  "lasso",
+  "ring",
+  "brush",
+  "eyedropper",
+];
 export type Gesture = "wedge" | "lasso" | "click" | "ring" | "brush" | "eyedropper";
 
 export function classifyGesture(tool: WheelTool, radius: number, moved: number): Gesture {

@@ -1,37 +1,88 @@
+.wheel-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+}
+
 .wheel-minimap {
   position: relative;
   width: fit-content;
   max-width: 100%;
 }
 
-.wheel-minimap canvas {
-  display: block;
+.wheel-tool-menu {
+  position: relative;
+  width: 240px;
   max-width: 100%;
 }
 
-.wheel-label {
-  position: absolute;
-  pointer-events: none;
+.wheel-tool-trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   font-family: var(--font-mono);
-  font-size: 0.625rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.8125rem;
+  text-transform: lowercase;
+}
+
+.wheel-tool-label {
   color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.625rem;
 }
 
-.wheel-label--hue {
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
+.wheel-tool-value {
+  flex: 1;
+  text-align: right;
 }
 
-.wheel-label--saturation {
-  right: 4%;
-  top: 52%;
-  max-width: 9rem;
-  line-height: 1.2;
-  text-align: left;
-  transform: translateY(-50%);
+.wheel-tool-trigger::after {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--ink-2);
+}
+
+.wheel-tool-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chrome);
+  box-shadow: 0 12px 32px -8px rgb(20 20 19 / 0.14);
+}
+
+.wheel-tool-option {
+  width: 100%;
+  justify-content: flex-start;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  text-transform: lowercase;
+}
+
+.wheel-tool-option[aria-checked="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.wheel-minimap canvas {
+  display: block;
+  max-width: 100%;
 }
 
 aside > p {

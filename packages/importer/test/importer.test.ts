@@ -270,10 +270,19 @@ describe("queue, picker, daemon", () => {
     const zipped = zipSync({
       "Takeout/IMG.jpg": jpeg,
       "Takeout/IMG.jpg.json": strToU8(JSON.stringify({ title: "IMG.jpg", photoTakenTime: { timestamp: "1600000000" } })),
+      "Takeout/Google Photos/IMG_2838.JPG": jpeg,
+      "Takeout/Google Photos/IMG_2838.JPG.supplemental-metadata.json": strToU8(
+        JSON.stringify({ title: "IMG_2838.JPG", photoTakenTime: { timestamp: "1735796161" } }),
+      ),
     });
     const entries = readTakeout(zipped);
-    expect(entries[0]?.sourceRef).toBe("IMG.jpg");
-    expect(entries[0]?.takenAt).toBe("2020-09-13T12:26:40.000Z");
+    expect(entries).toHaveLength(2);
+    const legacy = entries.find((entry) => entry.filename.endsWith("IMG.jpg"));
+    expect(legacy?.sourceRef).toBe("IMG.jpg");
+    expect(legacy?.takenAt).toBe("2020-09-13T12:26:40.000Z");
+    const modern = entries.find((entry) => entry.filename.endsWith("IMG_2838.JPG"));
+    expect(modern?.sourceRef).toBe("IMG_2838.JPG");
+    expect(modern?.takenAt).toBe("2025-01-02T05:36:01.000Z");
     const store = createStore(openSqlite(":memory:"));
     const dir = mkdtempSync(join(tmpdir(), "gallery-inbox-"));
     writeFileSync(join(dir, "a.jpg"), jpeg);
