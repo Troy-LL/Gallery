@@ -34,26 +34,36 @@ export function Preview(props: {
 
   return (
     <section className="preview" aria-label="Crop previews">
-      <ol className="order" aria-label="Image order">
-        {ordered.map((record, index) => (
-          <li key={record.id}>
-            <img src={`/api/media/${record.id}?kind=thumb`} alt="" />
-            <span className="order-index" aria-hidden="true">
-              {index + 1}
-            </span>
-            <button type="button" disabled={index === 0} onClick={() => props.onMove(record.id, -1)}>
-              Move earlier
-            </button>
-            <button
-              type="button"
-              disabled={index === ordered.length - 1}
-              onClick={() => props.onMove(record.id, 1)}
-            >
-              Move later
-            </button>
-          </li>
-        ))}
-      </ol>
+      <div className="order-strip">
+        <ol className="order" aria-label="Image order">
+          {ordered.map((record, index) => (
+            <li key={record.id}>
+              <div className="order-thumb">
+                <img src={`/api/media/${record.id}?kind=thumb`} alt="" />
+                <span className="order-index" aria-hidden="true">
+                  {index + 1}
+                </span>
+              </div>
+              <div className="order-actions">
+                <button
+                  type="button"
+                  disabled={index === 0}
+                  onClick={() => props.onMove(record.id, -1)}
+                >
+                  Earlier
+                </button>
+                <button
+                  type="button"
+                  disabled={index === ordered.length - 1}
+                  onClick={() => props.onMove(record.id, 1)}
+                >
+                  Later
+                </button>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
       <div className="cards">
         {props.platforms.map((platform) => {
           const surface = pickSurface(platform, ordered.length);
