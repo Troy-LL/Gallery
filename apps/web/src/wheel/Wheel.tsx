@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import {
   dotsFor,
   hueInWedge,
+  hueSymbol,
   oklchToOklab,
   oklabToRgb,
   pointInPolygon,
@@ -42,12 +43,14 @@ export function Wheel(props: {
   tool: WheelTool;
   multiSwatch: boolean;
   large?: boolean;
+  colorBlind?: boolean;
   selectedIds: string[];
   onSelect: (ids: string[], mode: "replace" | "add" | "subtract") => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ start: Point; points: Point[]; radius: number } | null>(null);
   const [cursor, setCursor] = useState<WheelCursor>({ hue: 0, radius: 0.4, brush: 0.08 });
+  const [hoverHex, setHoverHex] = useState<string | null>(null);
   const size = props.large ? 520 : 240;
   const records = props.records.map((record) => ({ ...record, embedding: null })) as LibraryRecord[];
   const ringRadius = size * 0.42;
@@ -69,17 +72,28 @@ export function Wheel(props: {
       context.beginPath();
       context.arc(x, y, 5, 0, Math.PI * 2);
       context.fill();
-      if (!selected.has(dot.imageId)) continue;
-      context.beginPath();
-      context.arc(x, y, 8, 0, Math.PI * 2);
-      context.strokeStyle = "#fcfcfb";
+      if (selected.has(dot.imageId)) {
+        context.beginPath();
+        context.arc(x, y, 8, 0, Math.PI * 2);
+        context.strokeStyle = "#fcfcfb";
+        context.lineWidth = 3;
+        context.stroke();
+        context.beginPath();
+        context.arc(x, y, 8, 0, Math.PI * 2);
+        context.strokeStyle = "#141413";
+        context.lineWidth = 1;
+        context.stroke();
+      }
+      if (!props.colorBlind) continue;
+      const symbol = hueSymbol(dot.oklch.h);
+      context.font = "12px sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
       context.lineWidth = 3;
-      context.stroke();
-      context.beginPath();
-      context.arc(x, y, 8, 0, Math.PI * 2);
-      context.strokeStyle = "#141413";
-      context.lineWidth = 1;
-      context.stroke();
+      context.strokeStyle = "#fcfcfb";
+      context.strokeText(symbol, x, y);
+      context.fillStyle = "#141413";
+      context.fillText(symbol, x, y);
     }
     const placed = wheelPoint(cursorColor(cursor, props.maxChroma), Math.max(props.maxChroma, 0.001));
     const cursorX = center + placed.x * ringRadius;
@@ -89,7 +103,7 @@ export function Wheel(props: {
     context.strokeStyle = "#141413";
     context.lineWidth = 1.5;
     context.stroke();
-  }, [records, props.maxChroma, props.multiSwatch, props.selectedIds, cursor, size, ringRadius]);
+  }, [records, props.maxChroma, props.multiSwatch, props.selectedIds, props.colorBlind, cursor, size, ringRadius]);
 
   function onKeyDown(event: ReactKeyboardEvent<HTMLCanvasElement>) {
     if (event.key === " ") {
@@ -126,6 +140,30 @@ export function Wheel(props: {
         return unreachable;
       }
     }
+  }
+
+  function hexAt(event: ReactPointerEvent<HTMLCanvasElement>): string | null {
+    const canvas = event.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width || canvas.width;
+    const height = rect.height || canvas.height;
+    const left = rect.width ? rect.left : 0;
+    const top = rect.height ? rect.top : 0;
+    const px = ((event.clientX - left) / width) * canvas.width;
+    const py = ((event.clientY - top) / height) * canvas.height;
+    const chroma = Math.max(props.maxChroma, 0.001);
+    const center = size / 2;
+    const dots = records.flatMap((record) => dotsFor(record, props.multiSwatch ? "all" : "dominant", 0.08));
+    let best: { hex: string; distance: number } | null = null;
+    for (const dot of dots) {
+      const point = wheelPoint(dot.oklch, chroma);
+      const x = center + point.x * ringRadius;
+      const y = center - point.y * ringRadius;
+      const distance = Math.hypot(px - x, py - y);
+      if (distance > 12 || (best && distance >= best.distance)) continue;
+      best = { hex: dot.hex, distance };
+    }
+    return best?.hex ?? null;
   }
 
   function localPoint(event: ReactPointerEvent<HTMLCanvasElement>): Point {
@@ -194,11 +232,19 @@ export function Wheel(props: {
           drag.current = { start, points: [start], radius: Math.hypot(start.x, start.y) };
         }}
         onPointerMove={(event) => {
+          if (props.colorBlind) {
+            const next = hexAt(event);
+            setHoverHex((current) => (current === next ? current : next));
+          }
           if (!drag.current) return;
           drag.current.points.push(localPoint(event));
         }}
+        onPointerLeave={() => setHoverHex(null)}
         onPointerUp={finish}
       />
+      {props.colorBlind && hoverHex ? (
+        <output className="wheel-hex" aria-label="Hovered swatch">{hoverHex}</output>
+      ) : null}
     </div>
   );
 }

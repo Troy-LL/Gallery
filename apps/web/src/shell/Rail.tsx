@@ -1,6 +1,6 @@
-import type { Facets } from "@gallery/core";
-import type { ComponentProps } from "react";
-import type { PublicRecord } from "../api/client";
+import { matchHarmony, type Facets, type Palette, type Swatch } from "@gallery/core";
+import { useState, type ComponentProps } from "react";
+import { savePalette, type PublicRecord } from "../api/client";
 import { Wheel } from "../wheel/Wheel";
 import { WheelToolMenu } from "../wheel/WheelToolMenu";
 import type { WheelTool } from "../wheel/gesture";
@@ -18,16 +18,63 @@ export type RailProps = {
   onFacets: (facets: Facets) => void;
   multiSwatch: boolean;
   onMultiSwatch: (value: boolean) => void;
+  palettes?: Palette[];
+  onPalettes?: (palettes: Palette[]) => void;
 };
 
+const HARMONY = ["analogous", "complementary", "triadic"] as const;
+
 export function Rail(props: RailProps) {
+  const palettes = props.palettes ?? [];
+  const [paletteName, setPaletteName] = useState("");
+  const [exportText, setExportText] = useState<string | null>(null);
+  const [colorBlind, setColorBlind] = useState(false);
   const min = props.facets.lightness?.min ?? 0;
   const max = props.facets.lightness?.max ?? 1;
+  const selectedRecords = props.wheelSlot.records.filter((record) => props.wheelSlot.selectedIds.includes(record.id));
+  const harmonySource = selectedRecords.length === 1 ? selectedRecords[0] : undefined;
+
+  async function saveCurrent() {
+    const name = paletteName.trim();
+    if (!name) return;
+    const selected = props.wheelSlot.selectedIds;
+    const records = selected.length > 0
+      ? selected.flatMap((id) => {
+          const record = props.wheelSlot.records.find((item) => item.id === id);
+          return record ? [record] : [];
+        })
+      : props.wheelSlot.records;
+    const palette: Palette = {
+      id: crypto.randomUUID(),
+      name,
+      selection_shape: selected.length > 0 ? { type: "ids", ids: [...selected] } : { type: "all" },
+      swatches: records.map(dominantSwatch),
+    };
+    await savePalette(palette);
+    props.onPalettes?.([...palettes, palette]);
+    setPaletteName("");
+  }
+
+  function reapply(palette: Palette) {
+    props.wheelSlot.onSelect(paletteIds(palette), "replace");
+  }
+
+  function publishExport(text: string, filename: string) {
+    setExportText(text);
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <aside>
       <div className="wheel-rail">
         <div className="wheel-stage">
-          <Wheel {...props.wheelSlot} />
+          <Wheel {...props.wheelSlot} colorBlind={colorBlind} />
           <NeutralsStrip records={props.wheelSlot.records} />
         </div>
         <WheelToolMenu value={props.tool} onChange={props.onTool} />
@@ -89,9 +136,100 @@ export function Rail(props: RailProps) {
         <button type="button" aria-pressed={props.multiSwatch} onClick={() => props.onMultiSwatch(!props.multiSwatch)}>
           Multi-swatch
         </button>
+        <button type="button" aria-pressed={colorBlind} onClick={() => setColorBlind((value) => !value)}>
+          Color-blind safe
+        </button>
       </fieldset>
+      {harmonySource ? (
+        <fieldset className="color-group">
+          <legend>Harmony</legend>
+          {HARMONY.map((kind) => {
+            const rows = props.wheelSlot.records.map((record) => ({ id: record.id, hue: record.dominant_oklch.h }));
+            const ids = matchHarmony(rows, harmonySource.id, harmonySource.dominant_oklch.h, kind);
+            return (
+              <button key={kind} type="button" onClick={() => props.wheelSlot.onSelect(ids, "replace")}>
+                {`${harmonyLabel(kind)} ${ids.length}`}
+              </button>
+            );
+          })}
+        </fieldset>
+      ) : null}
+      <section className="saved-palettes" aria-label="Saved palettes">
+        <label>
+          Palette name
+          <input aria-label="Palette name" value={paletteName} onChange={(event) => setPaletteName(event.target.value)} />
+        </label>
+        <button type="button" onClick={() => void saveCurrent()}>
+          Save palette
+        </button>
+        <ul>
+          {palettes.map((palette) => (
+            <li key={palette.id}>
+              <button type="button" onClick={() => reapply(palette)}>
+                {palette.name}
+              </button>
+              <button
+                type="button"
+                onClick={() => publishExport(palette.swatches.map((swatch) => swatch.hex).join("\n"), `${palette.name}.txt`)}
+              >
+                Export hex
+              </button>
+              <button type="button" onClick={() => publishExport(JSON.stringify(palette), `${palette.name}.json`)}>
+                Export JSON
+              </button>
+            </li>
+          ))}
+        </ul>
+        {exportText !== null ? (
+          <output className="palette-export" aria-label="Palette export">{exportText}</output>
+        ) : null}
+      </section>
     </aside>
   );
+}
+
+function dominantSwatch(record: PublicRecord): Swatch {
+  return {
+    hex: record.dominant_hex,
+    h: record.dominant_h,
+    s: record.dominant_s,
+    l: record.dominant_l,
+    oklch: record.dominant_oklch,
+    weight: 1,
+  };
+}
+
+function paletteIds(palette: Palette): string[] {
+  switch (palette.selection_shape.type) {
+    case "ids":
+      return palette.selection_shape.ids;
+    case "all":
+    case "neighborhood":
+    case "wedge":
+    case "lasso":
+    case "ring":
+    case "brush":
+      return [];
+    default: {
+      const unreachable: never = palette.selection_shape;
+      return unreachable;
+    }
+  }
+}
+
+function harmonyLabel(kind: (typeof HARMONY)[number]): string {
+  switch (kind) {
+    case "analogous":
+      return "Analogous";
+    case "complementary":
+      return "Complementary";
+    case "triadic":
+      return "Triadic";
+    default: {
+      const unreachable: never = kind;
+      return unreachable;
+    }
+  }
 }
 
 function NeutralsStrip(props: { records: PublicRecord[] }) {
