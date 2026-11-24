@@ -59,6 +59,17 @@ export function Grid(props: GridProps) {
 
   return (
     <div className="grid-wrap" ref={wrapRef} tabIndex={-1}>
+      <label>
+        Tile size
+        <input
+          aria-label="Tile size"
+          type="range"
+          min={96}
+          max={280}
+          value={tile}
+          onChange={(event) => props.onTile?.(Number(event.target.value))}
+        />
+      </label>
       <div className="grid" data-count={props.records.length} onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
         {visible.map((record) => {
           const inTray = props.trayIds.includes(record.id);

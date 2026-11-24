@@ -91,6 +91,29 @@ describe("ui helpers", () => {
     }
   });
 
+  it("shows the tile size control with a loaded grid", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo) => {
+      const url = String(input);
+      if (url === "/api/query") {
+        return Response.json({
+          total: 1,
+          matched: 1,
+          maxChroma: 0.2,
+          records: [{ id: "photo-1", needs_tags: false }],
+        });
+      }
+      if (url === "/api/platforms") return Response.json({ platforms: [] });
+      if (url === "/api/queue") return Response.json({ paused: false });
+      return new Response("missing", { status: 404 });
+    }));
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(createElement(App));
+    });
+    expect(host.querySelector("input[aria-label='Tile size']")).toBeTruthy();
+  });
+
   it("disables Preview until the tray has photos", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo) => {
       const url = String(input);
