@@ -18,7 +18,8 @@ export function App() {
   const [facets, setFacets] = useState<Facets>({});
   const [chips, setChips] = useState<FilterChip[]>([]);
   const [platforms, setPlatforms] = useState<PlatformConfig[]>([]);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [wheelSelection, setWheelSelection] = useState<string[]>([]);
+  const [trayIds, setTrayIds] = useState<string[]>([]);
   const [caption, setCaption] = useState("");
   const [platformId, setPlatformId] = useState("instagram");
   const [theme, setTheme] = useState<"light" | "dark">("dark");
@@ -34,7 +35,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [stripExif, setStripExif] = useState(true);
 
-  async function reload(nextFacets = facets, ids = selected) {
+  async function reload(nextFacets = facets, ids = wheelSelection) {
     const selection = ids.length > 0 ? { type: "ids" as const, ids } : { type: "all" as const };
     const result = await queryLibrary(emptyQuery(nextFacets, selection));
     setRecords(result.records);
@@ -76,8 +77,8 @@ export function App() {
             multiSwatch={multiSwatch}
             large={mode === "wheel"}
             onSelect={(ids, gestureMode) => {
-              const next = gestureMode === "replace" ? ids : gestureMode === "add" ? [...new Set([...selected, ...ids])] : selected.filter((id) => !ids.includes(id));
-              setSelected(next);
+              const next = gestureMode === "replace" ? ids : gestureMode === "add" ? [...new Set([...wheelSelection, ...ids])] : wheelSelection.filter((id) => !ids.includes(id));
+              setWheelSelection(next);
               void reload(facets, next);
             }}
           />
@@ -105,14 +106,14 @@ export function App() {
                 const max = Number(event.target.value) / 100;
                 const next = { ...facets, lightness: { min: 0, max } };
                 setFacets(next);
-                void reload(next, selected);
+                void reload(next, wheelSelection);
               }}
             />
           </label>
           <button aria-pressed={facets.monochrome === true} onClick={() => {
             const next = { ...facets, monochrome: facets.monochrome ? undefined : true };
             setFacets(next);
-            void reload(next, selected);
+            void reload(next, wheelSelection);
           }}>Monochrome</button>
           <label>
             Tool
@@ -132,7 +133,7 @@ export function App() {
                 const next: Facets = {};
                 for (const chip of result.chips) Object.assign(next, chip.facets);
                 setFacets(next);
-                void reload(next, selected);
+                void reload(next, wheelSelection);
               });
             }}
           >
@@ -149,7 +150,7 @@ export function App() {
                   const next: Facets = {};
                   for (const item of nextChips) Object.assign(next, item.facets);
                   setFacets(next);
-                  void reload(next, selected);
+                  void reload(next, wheelSelection);
                 }}
               >
                 {chip.label}
@@ -165,7 +166,7 @@ export function App() {
                 onClick={() => {
                   const next = { ...facets, orientation: facets.orientation?.[0] === orientation ? undefined : [orientation] };
                   setFacets(next);
-                  void reload(next, selected);
+                  void reload(next, wheelSelection);
                 }}
               >
                 {orientation}
@@ -175,12 +176,12 @@ export function App() {
           {mode === "preview" ? (
             <Preview
               records={records}
-              orderedIds={selected.length > 0 ? selected : records.slice(0, 3).map((record) => record.id)}
+              orderedIds={trayIds.length > 0 ? trayIds : records.slice(0, 3).map((record) => record.id)}
               platforms={platforms}
               caption={caption}
               onCaption={setCaption}
               onMove={(id, direction) => {
-                setSelected((current) => {
+                setTrayIds((current) => {
                   const base = current.length > 0 ? current : records.slice(0, 3).map((record) => record.id);
                   const index = base.indexOf(id);
                   const next = index + direction;
@@ -217,7 +218,7 @@ export function App() {
                   onClick={() => {
                     void seedLibrary(24).then(() => {
                       setEstimateLabel(null);
-                      setSelected([]);
+                      setWheelSelection([]);
                       return reload(facets, []);
                     });
                   }}
@@ -228,7 +229,7 @@ export function App() {
             ) : null}
             <button
               onClick={() => {
-                const ids = selected.length > 0 ? selected : records.slice(0, 1).map((record) => record.id);
+                const ids = trayIds.length > 0 ? trayIds : records.slice(0, 1).map((record) => record.id);
                 void fetch("/api/export", {
                   method: "POST",
                   headers: { "content-type": "application/json" },
