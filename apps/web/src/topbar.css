@@ -25,9 +25,12 @@ header nav,
 }
 
 .top-bar {
+  display: flex;
   flex: 1;
-  justify-content: flex-end;
   gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .top-bar-primary,
@@ -64,8 +67,7 @@ header nav,
 }
 
 .filters,
-.chips,
-.top-bar {
+.chips {
   display: flex;
   gap: 8px;
   align-items: center;
