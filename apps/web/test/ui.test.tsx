@@ -42,6 +42,78 @@ describe("ui helpers", () => {
     expect(host.querySelector("input[aria-label='Natural language filter']")).toBeNull();
   });
 
+  it("keeps the rail when filters match nothing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo) => {
+      const url = String(input);
+      if (url === "/api/query") return Response.json({ total: 4, matched: 0, maxChroma: 0.2, records: [] });
+      if (url === "/api/platforms") return Response.json({ platforms: [] });
+      if (url === "/api/queue") return Response.json({ paused: false });
+      return new Response("missing", { status: 404 });
+    }));
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(createElement(App));
+    });
+    expect(host.textContent).toContain("No photos match");
+    expect([...host.querySelectorAll("button")].map((button) => button.textContent?.trim())).toContain("Clear filters");
+    expect(host.querySelector("input[aria-label='Lightness']")).toBeTruthy();
+  });
+
+  it("queries the library with an all selection when the wheel is clear", async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/query") {
+        if (init?.body) bodies.push(JSON.parse(String(init.body)));
+        return Response.json({
+          total: 2,
+          matched: 2,
+          maxChroma: 0.2,
+          records: [{ id: "photo-1", needs_tags: false }, { id: "photo-2", needs_tags: false }],
+        });
+      }
+      if (url === "/api/platforms") return Response.json({ platforms: [] });
+      if (url === "/api/queue") return Response.json({ paused: false });
+      return new Response("missing", { status: 404 });
+    }));
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(createElement(App));
+    });
+    expect(bodies.length).toBeGreaterThan(0);
+    const libraryBody = bodies[0] as { selection?: { type: string; ids?: string[] } };
+    expect(libraryBody.selection).toEqual({ type: "all" });
+    for (const body of bodies) {
+      const selection = (body as { selection?: { type: string } }).selection;
+      expect(selection).not.toEqual({ type: "ids" });
+    }
+  });
+
+  it("shows the tile size control with a loaded grid", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo) => {
+      const url = String(input);
+      if (url === "/api/query") {
+        return Response.json({
+          total: 1,
+          matched: 1,
+          maxChroma: 0.2,
+          records: [{ id: "photo-1", needs_tags: false }],
+        });
+      }
+      if (url === "/api/platforms") return Response.json({ platforms: [] });
+      if (url === "/api/queue") return Response.json({ paused: false });
+      return new Response("missing", { status: 404 });
+    }));
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(createElement(App));
+    });
+    expect(host.querySelector("input[aria-label='Tile size']")).toBeTruthy();
+  });
+
   it("disables Preview until the tray has photos", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo) => {
       const url = String(input);

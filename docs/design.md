@@ -2,6 +2,17 @@
 
 Desktop-first workspace with three primary modes: `Gallery`, `Wheel focus` (expanded wheel), and `Post preview` (`Compare` | `Focus`).
 
+## Control map
+
+Shell homes after PR-09 (later PRs still build the marked slots):
+
+- **Top bar row 1:** product mark, `Gallery | Preview` mode switch, import. Export is not in the top bar long term; it stays with the tray *(Export still lives in row 1 until a tray PR moves it)*.
+- **Top bar row 2:** facet filters and removable pills *(full vocabulary and NL filter — later PR)*.
+- **Left rail:** wheel and color controls *(wheel tool menu refresh, neutrals strip, saved palettes — later PRs)*.
+- **Grid header:** counts, select-all, tile size *(PR-10+)*.
+- **Sticky bottom tray:** selection, Strip EXIF, Export *(tray restyle PR)*.
+- **Preview bar:** platform chips, `Compare | Focus`, `Light | Dark` *(preview controls PR)*.
+
 ## Workspace Layout
 
 - **Left rail:** Color wheel minimap, continuous lightness slider (`dark ↔ light`), vertical neutrals strip (near-gray/black/white dots spread vertically by lightness), `Monochrome` filter chip, and saved palettes list.
