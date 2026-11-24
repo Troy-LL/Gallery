@@ -51,11 +51,12 @@ export function App() {
   const trayReady = trayIds.length > 0;
   const showWorkspace = total > 0 || Boolean(error);
   const gridEmpty = gridRecords.length === 0;
-  const visibleIds = gridRecords.map((record) => record.id);
   const needsTags = gridRecords.filter((record) => record.needs_tags).length;
   const displayedGridRecords = needsTagsFilter
     ? gridRecords.filter((record) => record.needs_tags)
     : gridRecords;
+  const gridMatched = needsTagsFilter ? displayedGridRecords.length : matched;
+  const visibleIds = displayedGridRecords.map((record) => record.id);
 
   async function reload(nextFacets = facets, ids = wheelSelection) {
     const libraryResult = await queryLibrary(emptyQuery(nextFacets, { type: "all" }));
@@ -181,9 +182,9 @@ export function App() {
     switch (mode) {
       case "gallery":
         return (
-          <>
+          <div className="grid-stack">
             <GridHeader
-              matched={matched}
+              matched={gridMatched}
               total={total}
               selectedCount={trayIds.length}
               needsTags={needsTags}
@@ -211,7 +212,7 @@ export function App() {
                 tile={tile}
               />
             )}
-          </>
+          </div>
         );
       case "preview":
         return (

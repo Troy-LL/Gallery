@@ -13,6 +13,7 @@ export type GridProps = {
 };
 
 const GAP = 8;
+const TOGGLE_DELAY_MS = 200;
 
 export function Grid(props: GridProps) {
   const [scrollTop, setScrollTop] = useState(0);
@@ -21,6 +22,7 @@ export function Grid(props: GridProps) {
   const tile = props.tile ?? 160;
   const wrapRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const toggleTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const columns = columnCount(gridWidth || 640, tile, GAP);
   const rowHeight = tile + GAP;
   const range = visibleRange(scrollTop, viewportHeight || 640, rowHeight, props.records.length, columns);
@@ -40,6 +42,27 @@ export function Grid(props: GridProps) {
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => () => {
+    for (const timer of toggleTimers.current.values()) clearTimeout(timer);
+    toggleTimers.current.clear();
+  }, []);
+
+  function cancelToggle(id: string) {
+    const timer = toggleTimers.current.get(id);
+    if (!timer) return;
+    clearTimeout(timer);
+    toggleTimers.current.delete(id);
+  }
+
+  function scheduleToggle(id: string) {
+    cancelToggle(id);
+    const timer = setTimeout(() => {
+      toggleTimers.current.delete(id);
+      props.onToggle(id);
+    }, TOGGLE_DELAY_MS);
+    toggleTimers.current.set(id, timer);
+  }
 
   useEffect(() => {
     const node = wrapRef.current;
@@ -110,11 +133,11 @@ export function Grid(props: GridProps) {
                 aria-pressed={inTray}
                 aria-label={`Photo ${index + 1}`}
                 onFocus={() => props.onFocus(record.id)}
-                onClick={(event) => {
-                  if (event.detail > 1) return;
-                  props.onToggle(record.id);
+                onClick={() => scheduleToggle(record.id)}
+                onDoubleClick={() => {
+                  cancelToggle(record.id);
+                  props.onInspect(record.id);
                 }}
-                onDoubleClick={() => props.onInspect(record.id)}
               >
                 <img src={`/api/media/${record.id}?kind=thumb`} alt="" draggable={false} />
                 {inTray ? <span className="tray-check" aria-hidden="true">✓</span> : null}

@@ -126,7 +126,10 @@ describe("Grid", () => {
   });
 
   it("virtualizes with a scroll spacer and tab order when unfocused", async () => {
-    const records = Array.from({ length: 24 }, (_, index) => record(`photo-${index + 1}`));
+    const records = [
+      record("photo-1", true),
+      ...Array.from({ length: 23 }, (_, index) => record(`photo-${index + 2}`)),
+    ];
     const onToggle = vi.fn();
     const onInspect = vi.fn();
     const host = document.createElement("div");
@@ -153,7 +156,9 @@ describe("Grid", () => {
     expect(tiles.slice(1).every((tile) => tile.getAttribute("tabindex") === "-1")).toBe(true);
     expect(tiles[0]?.getAttribute("aria-label")).toMatch(/1/);
     expect(host.textContent).not.toContain("needs tags");
+    expect(host.querySelector(".badge")).toBeNull();
     await act(async () => {
+      tiles[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
       tiles[0]?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, detail: 2 }));
     });
     expect(onInspect).toHaveBeenCalledWith("photo-1");
@@ -180,8 +185,40 @@ describe("Grid", () => {
     });
     const tile = host.querySelector(".tile") as HTMLButtonElement;
     await act(async () => {
-      tile.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 2 }));
+      tile.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+      tile.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, detail: 2 }));
     });
     expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it("commits a single click after the delay", async () => {
+    vi.useFakeTimers();
+    const records = [record("photo-1")];
+    const onToggle = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(
+        createElement(Grid, {
+          records,
+          trayIds: [],
+          focusId: null,
+          onFocus: () => undefined,
+          onToggle,
+          onInspect: () => undefined,
+          tile: 96,
+        }),
+      );
+    });
+    const tile = host.querySelector(".tile") as HTMLButtonElement;
+    await act(async () => {
+      tile.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    });
+    expect(onToggle).not.toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(onToggle).toHaveBeenCalledWith("photo-1");
+    vi.useRealTimers();
   });
 });

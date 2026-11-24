@@ -4,7 +4,19 @@
   align-items: flex-start;
 }
 
-.main-stage > .grid-wrap {
+.main-stage > .grid-stack {
+  flex: 1;
+  min-width: 0;
+}
+
+.grid-stack {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.grid-stack > .grid-wrap {
   flex: 1;
   min-width: 0;
 }
