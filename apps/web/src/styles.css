@@ -105,16 +105,16 @@ form,
   min-width: 0;
 }
 
-.preview-panel {
-  flex: 0 0 auto;
-  max-width: min(100%, 920px);
-  overflow: auto;
-}
-
-.tray-slot {
+.tray {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tray-header {
   display: flex;
   gap: 12px;
   align-items: center;
@@ -135,11 +135,36 @@ form,
   padding: 0;
 }
 
+.tray-tile {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chrome);
+  background: var(--elevated);
+  cursor: pointer;
+}
+
+.tray-tile img,
 .tray-ids img {
   display: block;
   border-radius: var(--radius-chrome);
-  border: 1px solid var(--line);
   object-fit: cover;
+}
+
+.tray-check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: grid;
+  place-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: var(--radius-chrome);
+  background: var(--ink);
+  color: var(--paper);
+  pointer-events: none;
 }
 
 .export-options {
@@ -184,7 +209,7 @@ header nav {
 }
 
 .chrome-btn,
-button:not(.tile) {
+button:not(.tile):not(.tray-tile) {
   background: var(--fill);
   border: 1px solid var(--line);
   border-radius: var(--radius-chrome);
@@ -199,7 +224,7 @@ button:not(.tile) {
 }
 
 .chrome-btn[aria-pressed="true"],
-button:not(.tile)[aria-pressed="true"] {
+button:not(.tile):not(.tray-tile)[aria-pressed="true"] {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--paper);
@@ -229,7 +254,7 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 .chrome-btn:focus-visible,
-button:not(.tile):focus-visible {
+button:not(.tile):not(.tray-tile):focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
@@ -308,40 +333,9 @@ main {
   padding: 8px 12px;
 }
 
-.cards {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.card {
-  width: 280px;
-  background: var(--elevated);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-chrome);
-  padding: 12px;
-}
-
-.theme-light .card {
-  background: var(--elevated);
-  color: var(--ink);
-}
-
-.theme-dark .card {
-  background: #1a1a18;
-  border-color: #2e2e2b;
-  color: #f5f4f1;
-}
-
-.preview-label {
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-size: 12px;
-  color: var(--ink-3);
-}
-
-.who {
-  color: var(--ink-2);
+.tile-in-tray {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
 }
 
 .lightbox {
@@ -372,12 +366,6 @@ main {
   color: var(--ink);
 }
 
-aside > p {
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  color: var(--ink-2);
-}
-
 [role="status"] {
   color: var(--ink-2);
   padding: 0 20px;
@@ -385,14 +373,14 @@ aside > p {
 
 @media (hover: hover) and (pointer: fine) {
   .chrome-btn:hover,
-  button:not(.tile):hover {
+  button:not(.tile):not(.tray-tile):hover {
     background: var(--fill-hover);
     border-color: color-mix(in oklab, var(--ink) 18%, var(--line));
     transform: translateY(-1px);
   }
 
   .chrome-btn[aria-pressed="true"]:hover,
-  button:not(.tile)[aria-pressed="true"]:hover {
+  button:not(.tile):not(.tray-tile)[aria-pressed="true"]:hover {
     background: var(--ink);
     border-color: var(--ink);
     color: var(--paper);
@@ -405,7 +393,7 @@ aside > p {
 }
 
 .chrome-btn:active,
-button:not(.tile):active {
+button:not(.tile):not(.tray-tile):active {
   transform: scale(0.97);
 }
 
@@ -416,7 +404,7 @@ button:not(.tile):active {
   }
 
   .chrome-btn:active,
-  button:not(.tile):active {
+  button:not(.tile):not(.tray-tile):active {
     transform: none;
   }
 }

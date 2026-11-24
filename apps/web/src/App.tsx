@@ -1,11 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { reduceWheelKey, type Facets, type FilterChip, type PlatformConfig } from "@gallery/core";
 import { emptyQuery, estimate, loadPlatforms, queryLibrary, seedLibrary, type PublicRecord } from "./api/client";
 import { Grid } from "./grid/Grid";
 import { Lightbox } from "./lightbox/Lightbox";
 import { Preview } from "./preview/Preview";
+import { Tray } from "./tray/Tray";
 import { Wheel } from "./wheel/Wheel";
 import type { WheelTool } from "./wheel/gesture";
+
+/** Stable wheel slot — PR-06 may edit wheel files only. */
+export type WheelSlotProps = ComponentProps<typeof Wheel>;
+
+/** Stable preview slot — PR-07 may edit preview files only. */
+export type PreviewSlotProps = ComponentProps<typeof Preview>;
 
 export function App() {
   const [records, setRecords] = useState<PublicRecord[]>([]);
@@ -26,6 +33,7 @@ export function App() {
   const [multiSwatch, setMultiSwatch] = useState(false);
   const [cursor, setCursor] = useState({ hue: 0, radius: 0.4, brush: 0.08 });
   const [openId, setOpenId] = useState<string | null>(null);
+  const [gridFocusId, setGridFocusId] = useState<string | null>(null);
   const [estimateLabel, setEstimateLabel] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +46,7 @@ export function App() {
   const hasLibrary = records.length > 0;
   const trayReady = trayIds.length > 0;
   const showWorkspace = hasLibrary || Boolean(error);
+  const visibleIds = records.map((record) => record.id);
 
   async function reload(nextFacets = facets, ids = wheelSelection) {
     const selection = ids.length > 0 ? { type: "ids" as const, ids } : { type: "all" as const };
@@ -76,6 +85,55 @@ export function App() {
   function toggleTrayId(id: string) {
     setTrayIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
   }
+
+  function addVisibleToTray() {
+    setTrayIds((current) => [...current, ...visibleIds.filter((id) => !current.includes(id))]);
+  }
+
+  function openInspect(id: string) {
+    setOpenId(id);
+    setGridFocusId(id);
+  }
+
+  const wheelSlot: WheelSlotProps = {
+    records,
+    maxChroma,
+    tool,
+    colorBlind,
+    multiSwatch,
+    large: false,
+    onSelect: (ids, gestureMode) => {
+      const next = gestureMode === "replace" ? ids : gestureMode === "add" ? [...new Set([...wheelSelection, ...ids])] : wheelSelection.filter((id) => !ids.includes(id));
+      setWheelSelection(next);
+      void reload(facets, next);
+    },
+  };
+
+  const previewSlot: PreviewSlotProps = {
+    records,
+    orderedIds: trayIds,
+    platforms,
+    caption,
+    onCaption: setCaption,
+    onMove: (id, direction) => {
+      setTrayIds((current) => {
+        const index = current.indexOf(id);
+        const next = index + direction;
+        if (index < 0 || next < 0 || next >= current.length) return current;
+        const copy = [...current];
+        const [item] = copy.splice(index, 1);
+        if (!item) return current;
+        copy.splice(next, 0, item);
+        return copy;
+      });
+    },
+    theme,
+    focus,
+    platformId,
+    onPlatform: setPlatformId,
+    onTheme: setTheme,
+    onFocus: setFocus,
+  };
 
   return (
     <div className="app">
@@ -219,19 +277,7 @@ export function App() {
       <div className="workspace">
         {hasLibrary ? (
           <aside>
-            <Wheel
-              records={records}
-              maxChroma={maxChroma}
-              tool={tool}
-              colorBlind={colorBlind}
-              multiSwatch={multiSwatch}
-              large={false}
-              onSelect={(ids, gestureMode) => {
-                const next = gestureMode === "replace" ? ids : gestureMode === "add" ? [...new Set([...wheelSelection, ...ids])] : wheelSelection.filter((id) => !ids.includes(id));
-                setWheelSelection(next);
-                void reload(facets, next);
-              }}
-            />
+            <Wheel {...wheelSlot} />
             <div
               aria-label="Wheel keys"
               tabIndex={0}
@@ -286,66 +332,43 @@ export function App() {
             {hasLibrary ? (
               <Grid
                 records={records}
-                onOpen={(id) => {
-                  toggleTrayId(id);
-                  setOpenId(id);
-                }}
+                trayIds={trayIds}
+                focusId={gridFocusId}
+                onFocus={setGridFocusId}
+                onToggle={toggleTrayId}
+                onInspect={openInspect}
               />
             ) : null}
             {previewOpen && trayReady ? (
               <div className="preview-panel" aria-label="Post preview">
-                <Preview
-                  records={records}
-                  orderedIds={trayIds}
-                  platforms={platforms}
-                  caption={caption}
-                  onCaption={setCaption}
-                  onMove={(id, direction) => {
-                    setTrayIds((current) => {
-                      const index = current.indexOf(id);
-                      const next = index + direction;
-                      if (index < 0 || next < 0 || next >= current.length) return current;
-                      const copy = [...current];
-                      const [item] = copy.splice(index, 1);
-                      if (!item) return current;
-                      copy.splice(next, 0, item);
-                      return copy;
-                    });
-                  }}
-                  theme={theme}
-                  focus={focus}
-                  platformId={platformId}
-                  onPlatform={setPlatformId}
-                  onTheme={setTheme}
-                  onFocus={setFocus}
-                />
+                <Preview {...previewSlot} />
               </div>
             ) : null}
           </div>
           {hasLibrary ? (
-            <div className="tray-slot" aria-label="Selection tray">
-              {trayReady ? (
-                <ul className="tray-ids">
-                  {trayIds.map((id) => {
-                    const record = records.find((item) => item.id === id);
-                    return (
-                      <li key={id}>
-                        {record ? <img src={`/api/media/${id}?kind=thumb`} alt="" width={48} height={48} /> : id}
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p className="tray-empty">Click photos to build a set</p>
-              )}
-              <label className="export-options">
-                <input type="checkbox" checked={stripExif} aria-label="Strip EXIF" onChange={(event) => setStripExif(event.target.checked)} /> Strip EXIF
-              </label>
-            </div>
+            <Tray
+              records={records}
+              orderedIds={trayIds}
+              visibleIds={visibleIds}
+              onReorder={setTrayIds}
+              onToggle={toggleTrayId}
+              onInspect={openInspect}
+              onAddVisible={addVisibleToTray}
+              stripExif={stripExif}
+              onStripExif={setStripExif}
+            />
           ) : null}
         </main>
       </div>
-      {open ? <Lightbox record={open} onClose={() => setOpenId(null)} onChange={() => void reload()} /> : null}
+      {open ? (
+        <Lightbox
+          record={open}
+          records={records}
+          onClose={() => setOpenId(null)}
+          onNavigate={setOpenId}
+          onChange={() => void reload()}
+        />
+      ) : null}
     </div>
   );
 }
