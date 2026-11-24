@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
-import type { Facets, FilterChip, PlatformConfig } from "@gallery/core";
+import type { Facets, FilterChip, Palette, PlatformConfig } from "@gallery/core";
 import {
   emptyQuery,
   estimate,
+  listPalettes,
   loadPlatforms,
   naturalLanguage,
   queryLibrary,
@@ -55,6 +56,7 @@ export function App() {
   const [mode, setMode] = useState<WorkspaceMode>("gallery");
   const [tile, setTile] = useState(160);
   const [needsTagsFilter, setNeedsTagsFilter] = useState(false);
+  const [palettes, setPalettes] = useState<Palette[]>([]);
   const [strictness, setStrictness] = useState(0.5);
   const addPhotosRef = useRef<HTMLButtonElement>(null);
   const importPopoverRef = useRef<HTMLDivElement>(null);
@@ -114,6 +116,7 @@ export function App() {
   useEffect(() => {
     void reload().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "The gallery API is not running."));
     void loadPlatforms().then((result) => setPlatforms(result.platforms)).catch(() => undefined);
+    void listPalettes().then((result) => setPalettes(result.palettes)).catch(() => undefined);
     void fetch("/api/queue").then(async (response) => {
       if (!response.ok) return;
       const body = (await response.json()) as { paused: boolean };
@@ -350,6 +353,8 @@ export function App() {
             }}
             multiSwatch={multiSwatch}
             onMultiSwatch={setMultiSwatch}
+            palettes={palettes}
+            onPalettes={setPalettes}
           />
         ) : null}
         <main>

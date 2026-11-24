@@ -1,4 +1,4 @@
-import type { Facets, FilterChip, LibraryQuery, LibraryRecord, PlatformConfig, Selection } from "@gallery/core";
+import type { Facets, FilterChip, LibraryQuery, LibraryRecord, Palette, PlatformConfig, Selection } from "@gallery/core";
 
 export type PublicRecord = Omit<LibraryRecord, "embedding">;
 
@@ -45,4 +45,12 @@ export function naturalLanguage(text: string): Promise<{ chips: FilterChip[] }> 
 
 export function saveCuration(id: string, patch: unknown): Promise<{ record: PublicRecord }> {
   return api("/api/curation", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, patch }) });
+}
+
+export function listPalettes(): Promise<{ palettes: Palette[] }> {
+  return api("/api/palettes");
+}
+
+export function savePalette(palette: Palette): Promise<{ ok: boolean }> {
+  return api("/api/palettes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(palette) });
 }
