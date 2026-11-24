@@ -3,6 +3,7 @@ import {
   ASPECT_BUCKETS,
   ORIENTATIONS,
   SHARPNESS,
+  STATUSES,
   TEMPERATURES,
   type Facets,
   type FilterChip,
@@ -33,6 +34,7 @@ export type TopBarProps = {
   onTemperature: (value: (typeof TEMPERATURES)[number]) => void;
   onFavorites: () => void;
   onNeverUsed: () => void;
+  onStatus: (value: (typeof STATUSES)[number]) => void;
   onClearFilters: () => void;
   onNaturalLanguage: (text: string) => Promise<void>;
   strictness: number;
@@ -176,6 +178,16 @@ export function TopBar(props: TopBarProps) {
             <button type="button" aria-pressed={props.facets.neverUsed === true} onClick={props.onNeverUsed}>
               never used
             </button>
+            {STATUSES.map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={props.facets.status?.includes(value) ?? false}
+                onClick={() => props.onStatus(value)}
+              >
+                {value}
+              </button>
+            ))}
           </div>
           <div className="chips" aria-label="Active filters">
             {props.chips.map((chip) => (

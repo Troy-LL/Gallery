@@ -4,9 +4,10 @@ import { createRoot } from "react-dom/client";
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { FilterChip } from "@gallery/core";
-import { TopBar } from "../src/shell/TopBar";
+import { withTagStrictness } from "../src/facets";
+import { TopBar, type TopBarProps } from "../src/shell/TopBar";
 
-function baseProps() {
+function baseProps(): TopBarProps {
   return {
     showWorkspace: true,
     mode: "gallery" as const,
@@ -36,11 +37,12 @@ function baseProps() {
     onTemperature: vi.fn(),
     onFavorites: vi.fn(),
     onNeverUsed: vi.fn(),
+    onStatus: vi.fn(),
   };
 }
 
-async function renderTopBar(overrides: Partial<ReturnType<typeof baseProps>> = {}) {
-  const props = { ...baseProps(), ...overrides };
+async function renderTopBar(overrides: Partial<TopBarProps> = {}) {
+  const props: TopBarProps = { ...baseProps(), ...overrides };
   const host = document.createElement("div");
   document.body.append(host);
   await act(async () => {
@@ -103,5 +105,30 @@ describe("TopBar", () => {
       slider.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(props.onStrictness).toHaveBeenCalled();
+  });
+
+  it("updates tag predicate strictness from the slider", async () => {
+    const tagChip = {
+      id: "has_text",
+      label: "has text",
+      facets: {
+        tags: [{ questionId: "has_text", equals: true, minProbability: 0.5 }],
+      },
+    } satisfies FilterChip;
+    let predicate: { minProbability: number } | undefined;
+    const onStrictness = vi.fn((value: number) => {
+      predicate = withTagStrictness(tagChip.facets, value).tags?.[0];
+    });
+    const { host } = await renderTopBar({
+      chips: [tagChip],
+      facets: tagChip.facets,
+      onStrictness,
+    });
+    const slider = host.querySelector("input[aria-label='Strictness']") as HTMLInputElement;
+    await act(async () => {
+      slider.value = "0.85";
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(predicate?.minProbability).toBe(0.85);
   });
 });

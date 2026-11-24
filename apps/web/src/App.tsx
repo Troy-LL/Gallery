@@ -15,6 +15,7 @@ import { Preview } from "./preview/Preview";
 import { Tray } from "./tray/Tray";
 import { Wheel } from "./wheel/Wheel";
 import type { WheelTool } from "./wheel/gesture";
+import { removeChipFromFacets, withTagStrictness } from "./facets";
 import { GridHeader } from "./shell/GridHeader";
 import { Rail } from "./shell/Rail";
 import { TopBar, type WorkspaceMode } from "./shell/TopBar";
@@ -58,15 +59,7 @@ export function App() {
   const addPhotosRef = useRef<HTMLButtonElement>(null);
   const importPopoverRef = useRef<HTMLDivElement>(null);
 
-  function withTagStrictness(nextFacets: Facets, minProbability: number): Facets {
-    if (!nextFacets.tags?.length) return nextFacets;
-    return {
-      ...nextFacets,
-      tags: nextFacets.tags.map((tag) => ({ ...tag, minProbability })),
-    };
-  }
-
-  function toggleFacetList<Key extends "aspect_ratio" | "sharpness" | "temperature">(
+  function toggleFacetList<Key extends "aspect_ratio" | "sharpness" | "temperature" | "status">(
     key: Key,
     value: NonNullable<Facets[Key]>[number],
   ) {
@@ -294,11 +287,11 @@ export function App() {
         total={total}
         chips={chips}
         onRemoveChip={(chipId) => {
+          const removed = chips.find((item) => item.id === chipId);
           const nextChips = chips.filter((item) => item.id !== chipId);
           setChips(nextChips);
-          const next: Facets = {};
-          for (const item of nextChips) Object.assign(next, item.facets);
-          applyFacets(next);
+          if (!removed) return;
+          applyFacets(withTagStrictness(removeChipFromFacets(facets, removed.facets, nextChips), strictness));
         }}
         facets={facets}
         onOrientation={(orientation) => {
@@ -316,6 +309,7 @@ export function App() {
           const next = { ...facets, neverUsed: facets.neverUsed ? undefined : true };
           applyFacets(next);
         }}
+        onStatus={(value) => toggleFacetList("status", value)}
         onClearFilters={clearFilters}
         onNaturalLanguage={async (text) => {
           const result = await naturalLanguage(text);
