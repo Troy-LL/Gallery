@@ -64,29 +64,32 @@ describe("Tray", () => {
     const { host, onExport } = mountTray({ orderedIds: ["photo-a", "photo-b"] });
     expect(host.textContent).toContain("2 in selection");
 
-    const tray = host.querySelector("section.tray");
-    const thumbStrip = host.querySelector(".tray-ids");
-    const exportButton = host.querySelector("button.primary");
+    const tray = host.querySelector("section.tray") as HTMLElement | null;
+    const thumbStrip = host.querySelector(".tray-ids") as HTMLElement | null;
+    const exportButton = host.querySelector("button.primary") as HTMLButtonElement | null;
     expect(tray && thumbStrip && exportButton).toBeTruthy();
-    expect(getComputedStyle(tray!).height).toBe("96px");
-    expect(thumbStrip!.parentElement).toBe(tray);
-    expect(exportButton!.parentElement).toBe(tray);
-    const trayBox = tray!.getBoundingClientRect();
-    const stripBox = thumbStrip!.getBoundingClientRect();
+    const trayEl = tray as HTMLElement;
+    const thumbStripEl = thumbStrip as HTMLElement;
+    const exportButtonEl = exportButton as HTMLButtonElement;
+    expect(getComputedStyle(trayEl).height).toBe("96px");
+    expect(thumbStripEl.parentElement).toBe(trayEl);
+    expect(exportButtonEl.parentElement).toBe(trayEl);
+    const trayBox = trayEl.getBoundingClientRect();
+    const stripBox = thumbStripEl.getBoundingClientRect();
     if (trayBox.height > 0) {
       expect(trayBox.height).toBeCloseTo(96, 0);
       expect(stripBox.top).toBeGreaterThanOrEqual(trayBox.top);
       expect(stripBox.bottom).toBeLessThanOrEqual(trayBox.bottom + 1);
       expect(stripBox.top - trayBox.top).toBeLessThan(24);
     } else {
-      expect(Math.abs(thumbStrip!.offsetTop - exportButton!.offsetTop)).toBeLessThan(8);
+      expect(Math.abs(thumbStripEl.offsetTop - exportButtonEl.offsetTop)).toBeLessThan(8);
     }
 
-    expect(exportButton!.textContent?.trim()).toBe("Export instagram zip");
-    expect(exportButton!.disabled).toBe(false);
+    expect(exportButtonEl.textContent?.trim()).toBe("Export instagram zip");
+    expect(exportButtonEl.disabled).toBe(false);
 
     act(() => {
-      exportButton!.click();
+      exportButtonEl.click();
     });
     expect(onExport).toHaveBeenCalledTimes(1);
   });
