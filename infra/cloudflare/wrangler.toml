@@ -1,0 +1,7 @@
+name = "gallery-api"
+main = "../../apps/api/src/worker.ts"
+compatibility_date = "2026-11-01"
+
+[vars]
+AUTH_MODE = "access"
+# CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD are set in the Cloudflare dashboard.
