@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { STATUSES, type Collection, type Post } from "@gallery/core";
 import type { PublicRecord } from "../api/client";
-import { saveCuration } from "../api/client";
+import { api, saveCuration } from "../api/client";
 
 export type LightboxProps = {
   record: PublicRecord;
@@ -10,13 +11,36 @@ export type LightboxProps = {
   onChange: () => void;
 };
 
+const INK = "#141413";
+const PAPER = "#fcfcfb";
+
+type Answer = PublicRecord["answers"][number];
+type SimilarMatch = { id: string; score: number };
+
 export function Lightbox(props: LightboxProps) {
   const [status, setStatus] = useState(props.record.status);
+  const [matches, setMatches] = useState<SimilarMatch[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const restoreRef = useRef<HTMLElement | null>(null);
   const favorite = (props.record.rating ?? 0) >= 1;
+  const index = props.records.findIndex((item) => item.id === props.record.id);
+  const previous = index > 0 ? props.records[index - 1] : undefined;
+  const next = index >= 0 ? props.records[index + 1] : undefined;
 
   useEffect(() => {
     setStatus(props.record.status);
   }, [props.record.id, props.record.status]);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    restoreRef.current = previousFocus instanceof HTMLElement ? previousFocus : null;
+    closeRef.current?.focus();
+    return () => {
+      restoreRef.current?.focus();
+    };
+  }, []);
 
   useEffect(() => {
     const { record, records, onClose, onNavigate } = props;
@@ -26,68 +50,275 @@ export function Lightbox(props: LightboxProps) {
         onClose();
         return;
       }
-      const index = records.findIndex((item) => item.id === record.id);
-      if (index < 0) return;
+      const target = event.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+      const current = records.findIndex((item) => item.id === record.id);
+      if (current < 0) return;
       if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
         event.preventDefault();
-        const prev = records[index - 1];
+        const prev = records[current - 1];
         if (prev) onNavigate(prev.id);
       }
       if (event.key === "ArrowRight" || event.key === "ArrowDown") {
         event.preventDefault();
-        const next = records[index + 1];
-        if (next) onNavigate(next.id);
+        const following = records[current + 1];
+        if (following) onNavigate(following.id);
       }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [props.record, props.records, props.onClose, props.onNavigate]);
 
+  useEffect(() => {
+    const id = props.record.id;
+    let cancelled = false;
+    void api<{ matches: SimilarMatch[] }>(`/api/similar/${id}`)
+      .then((result) => {
+        if (!cancelled) setMatches(result.matches);
+      })
+      .catch(() => undefined);
+    void api<{ posts: Post[] }>("/api/posts")
+      .then((result) => {
+        if (!cancelled) setPosts(result.posts.filter((post) => post.image_ids.includes(id)));
+      })
+      .catch(() => undefined);
+    void api<{ collections: Collection[] }>("/api/collections")
+      .then((result) => {
+        if (!cancelled) setCollections(result.collections);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [props.record.id]);
+
   async function save(patch: unknown) {
     await saveCuration(props.record.id, patch);
     props.onChange();
   }
 
+  function addTag(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const questionId = String(data.get("question") ?? "").trim();
+    const value = String(data.get("value") ?? "").trim();
+    if (!questionId || !value) return;
+    event.currentTarget.reset();
+    void save({ answer: { question_id: questionId, type: "choice", value } });
+  }
+
+  function removeTag(answer: Answer) {
+    void save({
+      answer: {
+        question_id: answer.question_id,
+        type: answer.type,
+        value: null,
+        ...(answer.probability !== undefined ? { probability: answer.probability } : {}),
+      },
+    });
+  }
+
+  function addCollection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const name = String(data.get("name") ?? "").trim();
+    if (!name) return;
+    const collection: Collection = {
+      id: crypto.randomUUID(),
+      name,
+      image_ids: [props.record.id],
+    };
+    event.currentTarget.reset();
+    setCollections((current) => [...current, collection]);
+    void api("/api/collections", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(collection),
+    });
+  }
+
+  const visibleAnswers = props.record.answers.filter((answer) => answer.value !== null);
+
   return (
-    <div className="lightbox" role="dialog" aria-label="Inspect photo">
-      <button type="button" onClick={props.onClose}>Close</button>
-      <img src={`/api/media/${props.record.id}?kind=working`} alt="" />
-      <div className="swatches">
-        {props.record.palette.map((swatch) => (
+    <div className="lightbox-root">
+      <div className="lightbox-scrim" onClick={props.onClose} />
+      <div className="lightbox" role="dialog" aria-modal="true" aria-label="Inspect photo">
+        <div className="lightbox-stage">
           <button
-            key={swatch.hex}
             type="button"
-            style={{ background: swatch.hex }}
-            aria-label={`Use ${swatch.hex}`}
-            onClick={() => save({ dominant_hex: swatch.hex })}
+            className="lightbox-nav lightbox-prev"
+            aria-label="Previous photo"
+            disabled={!previous}
+            onClick={() => {
+              if (previous) props.onNavigate(previous.id);
+            }}
           >
-            {swatch.hex}
+            Previous
           </button>
-        ))}
+          <img
+            className="lightbox-photo"
+            src={`/api/media/${props.record.id}?kind=working`}
+            alt=""
+            style={{ maxHeight: "70vh" }}
+          />
+          <button
+            type="button"
+            className="lightbox-nav lightbox-next"
+            aria-label="Next photo"
+            disabled={!next}
+            onClick={() => {
+              if (next) props.onNavigate(next.id);
+            }}
+          >
+            Next
+          </button>
+        </div>
+        <div className="lightbox-side">
+          <button ref={closeRef} type="button" onClick={props.onClose}>
+            Close
+          </button>
+          <button type="button" aria-pressed={favorite} onClick={() => save({ rating: favorite ? 0 : 1 })}>
+            {favorite ? "Unfavorite" : "Favorite"}
+          </button>
+          <div className="lightbox-status" role="radiogroup" aria-label="Status">
+            {STATUSES.map((item) => (
+              <button
+                key={item}
+                type="button"
+                role="radio"
+                aria-checked={status === item}
+                onClick={() => {
+                  setStatus(item);
+                  void save({ status: item });
+                }}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <div className="swatches">
+            {props.record.palette.map((swatch) => {
+              const ink = swatchLabelColor(swatch.hex);
+              return (
+                <div className="swatch" key={swatch.hex}>
+                  <button
+                    type="button"
+                    style={{ backgroundColor: swatch.hex, color: ink ?? undefined }}
+                    aria-label={`Use ${swatch.hex}`}
+                    onClick={() => save({ dominant_hex: swatch.hex })}
+                  >
+                    {ink ? swatch.hex : null}
+                  </button>
+                  {ink ? null : (
+                    <span className="swatch-hex" style={{ color: INK }}>
+                      {swatch.hex}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="tag-row">
+            {visibleAnswers.map((answer) => (
+              <span className="tag-chip" key={answer.question_id}>
+                <span>{String(answer.value)}</span>
+                {answer.probability !== undefined ? <span>{answer.probability}</span> : null}
+                <button type="button" aria-label={`Remove ${String(answer.value)}`} onClick={() => removeTag(answer)}>
+                  Remove
+                </button>
+              </span>
+            ))}
+          </div>
+          <form aria-label="Add tag" onSubmit={addTag}>
+            <input name="question" aria-label="Tag question" />
+            <input name="value" aria-label="Tag value" />
+            <button type="submit">Add tag</button>
+          </form>
+          <label>
+            Notes
+            <textarea
+              aria-label="Notes"
+              key={`${props.record.id}:${props.record.notes ?? ""}`}
+              defaultValue={props.record.notes ?? ""}
+              onBlur={(event) => {
+                const nextNotes = event.currentTarget.value;
+                if (nextNotes === (props.record.notes ?? "")) return;
+                void save({ notes: nextNotes });
+              }}
+            />
+          </label>
+          <label>
+            Credit
+            <input
+              aria-label="Credit"
+              key={`${props.record.id}:${props.record.source_credit ?? ""}`}
+              defaultValue={props.record.source_credit ?? ""}
+              onBlur={(event) => {
+                const nextCredit = event.currentTarget.value;
+                if (nextCredit === (props.record.source_credit ?? "")) return;
+                void save({ source_credit: nextCredit });
+              }}
+            />
+          </label>
+          <section aria-label="Similar images" className="lightbox-strip">
+            {matches.map((match) => (
+              <button key={match.id} type="button" onClick={() => props.onNavigate(match.id)}>
+                <img src={`/api/media/${match.id}?kind=thumb`} alt="" />
+                <span>{match.id}</span>
+              </button>
+            ))}
+          </section>
+          <section aria-label="Post history">
+            {posts.map((post) => (
+              <article key={post.id}>
+                <span>{post.platform}</span>
+                <time dateTime={post.posted_at}>{post.posted_at}</time>
+                {post.caption_notes ? <p>{post.caption_notes}</p> : null}
+              </article>
+            ))}
+          </section>
+          <section aria-label="Collections">
+            <ul>
+              {collections.map((collection) => (
+                <li key={collection.id}>{collection.name}</li>
+              ))}
+            </ul>
+            <form aria-label="Add collection" onSubmit={addCollection}>
+              <input name="name" aria-label="Collection name" />
+              <button type="submit">Add collection</button>
+            </form>
+          </section>
+        </div>
       </div>
-      <button
-        type="button"
-        aria-pressed={favorite}
-        onClick={() => save({ rating: favorite ? 0 : 1 })}
-      >
-        {favorite ? "Unfavorite" : "Favorite"}
-      </button>
-      <label>
-        Status
-        <select
-          aria-label="Status"
-          value={status}
-          onChange={(event) => {
-            const next = event.target.value as PublicRecord["status"];
-            setStatus(next);
-            void save({ status: next });
-          }}
-        >
-          {(["unreviewed", "shortlisted", "approved", "rejected", "archived"] as const).map((item) => (
-            <option key={item}>{item}</option>
-          ))}
-        </select>
-      </label>
     </div>
   );
+}
+
+function channel(value: number): number {
+  const c = value / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+
+function luminance(hex: string): number {
+  const raw = hex.replace("#", "");
+  const r = channel(Number.parseInt(raw.slice(0, 2), 16));
+  const g = channel(Number.parseInt(raw.slice(2, 4), 16));
+  const b = channel(Number.parseInt(raw.slice(4, 6), 16));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrast(a: number, b: number): number {
+  const lighter = Math.max(a, b);
+  const darker = Math.min(a, b);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function swatchLabelColor(hex: string): string | null {
+  const lum = luminance(hex);
+  const ink = contrast(lum, luminance(INK));
+  const paper = contrast(lum, luminance(PAPER));
+  if (ink >= 4.5 && ink >= paper) return INK;
+  if (paper >= 4.5) return PAPER;
+  if (ink >= 4.5) return INK;
+  return null;
 }
