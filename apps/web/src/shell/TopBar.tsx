@@ -99,6 +99,10 @@ export function TopBar(props: TopBarProps) {
                 role="menu"
                 style={{ transformOrigin: "top left" }}
               >
+                <div className="import-row" role="presentation">
+                  <span className="import-row-label">Takeout folder</span>
+                  <p className="import-row-hint">Run pnpm import:takeout on this machine</p>
+                </div>
                 <button type="button" role="menuitem" onClick={props.onEstimate}>
                   Sample library
                 </button>

@@ -49,6 +49,9 @@ export function App() {
   const [gridFocusId, setGridFocusId] = useState<string | null>(null);
   const [estimateLabel, setEstimateLabel] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  const [pauseReason, setPauseReason] = useState<string | null>(null);
+  const [railOpen, setRailOpen] = useState(false);
+  const [narrowRail, setNarrowRail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stripExif, setStripExif] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -83,6 +86,7 @@ export function App() {
 
   const trayReady = trayIds.length > 0;
   const showWorkspace = total > 0 || Boolean(error);
+  const railExpanded = !narrowRail || railOpen;
   const gridEmpty = gridRecords.length === 0;
   const needsTags = gridRecords.filter((record) => record.needs_tags).length;
   const displayedGridRecords = needsTagsFilter
@@ -119,9 +123,21 @@ export function App() {
     void listPalettes().then((result) => setPalettes(result.palettes)).catch(() => undefined);
     void fetch("/api/queue").then(async (response) => {
       if (!response.ok) return;
-      const body = (await response.json()) as { paused: boolean };
+      const body = (await response.json()) as { paused: boolean; reason?: unknown };
       setPaused(body.paused);
+      setPauseReason(typeof body.reason === "string" ? body.reason : null);
     }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px)");
+    function sync() {
+      setNarrowRail(media.matches);
+      if (!media.matches) setRailOpen(true);
+    }
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
   }, []);
 
   useEffect(() => {
@@ -129,8 +145,19 @@ export function App() {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") setImportOpen(false);
     }
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (importPopoverRef.current?.contains(target)) return;
+      if (addPhotosRef.current?.contains(target)) return;
+      setImportOpen(false);
+    }
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [importOpen]);
 
   useEffect(() => {
@@ -338,8 +365,10 @@ export function App() {
         }}
       />
       {error ? <p role="status">{error}</p> : null}
-      {paused ? <p className="banner">Queue paused</p> : null}
-      <div className="workspace">
+      {paused ? (
+        <p className="banner">{typeof pauseReason === "string" ? pauseReason : "Queue paused"}</p>
+      ) : null}
+      <div className="workspace" data-rail-open={railExpanded ? "true" : "false"}>
         {total > 0 ? (
           <Rail
             wheelSlot={wheelSlot}
@@ -358,7 +387,20 @@ export function App() {
           />
         ) : null}
         <main>
-          <div className="main-stage">{showWorkspace ? renderCanvas() : null}</div>
+          {narrowRail && total > 0 ? (
+            <button
+              type="button"
+              className="chrome-btn rail-toggle"
+              aria-expanded={railOpen}
+              onClick={() => setRailOpen((open) => !open)}
+            >
+              Color wheel
+            </button>
+          ) : null}
+          <div className="main-stage">
+            {total === 0 && !error ? <p className="library-empty">Add photos to start</p> : null}
+            {showWorkspace ? renderCanvas() : null}
+          </div>
           {total > 0 && mode === "gallery" ? (
             <Tray
               records={gridRecords}

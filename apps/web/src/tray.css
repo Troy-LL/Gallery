@@ -38,6 +38,12 @@
   user-select: none;
 }
 
+@media (pointer: coarse) {
+  .export-options {
+    min-height: 44px;
+  }
+}
+
 .tray .primary {
   flex-shrink: 0;
 }
