@@ -9,12 +9,44 @@
   min-width: 0;
 }
 
-.grid {
+.grid-header {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.grid-header-summary {
+  margin: 0;
+}
+
+.grid-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+}
+
+.grid-header-tile {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.grid {
   max-height: 640px;
   overflow: auto;
+}
+
+.grid-inner {
+  position: relative;
+  width: 100%;
+}
+
+.grid-inner .tile {
+  position: absolute;
 }
 
 .grid[data-count] {
@@ -48,7 +80,17 @@
   outline-offset: -2px;
 }
 
+.tile:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
 @media (hover: hover) and (pointer: fine) {
+  .tile:hover {
+    outline: 2px solid var(--ink);
+    outline-offset: -2px;
+  }
+
   .tile:hover,
   .tile:active {
     transform: none;

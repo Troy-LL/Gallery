@@ -44,6 +44,7 @@ export function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [mode, setMode] = useState<WorkspaceMode>("gallery");
   const [tile, setTile] = useState(160);
+  const [needsTagsFilter, setNeedsTagsFilter] = useState(false);
   const addPhotosRef = useRef<HTMLButtonElement>(null);
   const importPopoverRef = useRef<HTMLDivElement>(null);
 
@@ -52,6 +53,9 @@ export function App() {
   const gridEmpty = gridRecords.length === 0;
   const visibleIds = gridRecords.map((record) => record.id);
   const needsTags = gridRecords.filter((record) => record.needs_tags).length;
+  const displayedGridRecords = needsTagsFilter
+    ? gridRecords.filter((record) => record.needs_tags)
+    : gridRecords;
 
   async function reload(nextFacets = facets, ids = wheelSelection) {
     const libraryResult = await queryLibrary(emptyQuery(nextFacets, { type: "all" }));
@@ -186,6 +190,8 @@ export function App() {
               onSelectAll={addVisibleToTray}
               tile={tile}
               onTile={setTile}
+              needsTagsFilter={needsTagsFilter}
+              onNeedsTagsFilter={setNeedsTagsFilter}
             />
             {gridEmpty && total > 0 ? (
               <div className="grid-wrap">
@@ -196,14 +202,13 @@ export function App() {
               </div>
             ) : (
               <Grid
-                records={gridRecords}
+                records={displayedGridRecords}
                 trayIds={trayIds}
                 focusId={gridFocusId}
                 onFocus={setGridFocusId}
                 onToggle={toggleTrayId}
                 onInspect={openInspect}
                 tile={tile}
-                onTile={setTile}
               />
             )}
           </>

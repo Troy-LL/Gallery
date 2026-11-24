@@ -1,3 +1,7 @@
+export function columnCount(width: number, tile: number, gap = 8): number {
+  return Math.max(1, Math.floor((width + gap) / (tile + gap)));
+}
+
 export function visibleRange(scrollTop: number, viewport: number, rowHeight: number, count: number, columns: number): { start: number; end: number } {
   const safeRow = Math.max(1, rowHeight);
   const row = Math.max(0, Math.floor(scrollTop / safeRow));
