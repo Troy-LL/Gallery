@@ -1,0 +1,102 @@
+:root {
+  color: #f4efe6;
+  background: #12100e;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; }
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+.app { min-height: 100vh; }
+
+header, .preview-bar, .actions, .filters, .chips, form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+header {
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #3a342c;
+}
+
+h1 {
+  margin: 0;
+  font-family: Palatino, "Iowan Old Style", serif;
+  font-size: 28px;
+  font-weight: 500;
+}
+
+button {
+  background: #2a241e;
+  border: 1px solid #4a4136;
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+
+button[aria-pressed="true"] { background: #e2b15a; color: #1c1408; }
+
+.workspace { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 72px); }
+
+aside, main { padding: 16px; }
+
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 640px;
+  overflow: auto;
+}
+
+.tile { position: relative; padding: 0; overflow: hidden; border-radius: 8px; }
+
+.tile img, .frame img, .order img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.badge, .banner {
+  background: #5c2b24;
+  color: #f6d7cf;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.cards { display: flex; gap: 16px; align-items: flex-start; }
+
+.card {
+  width: 280px;
+  background: #1c1916;
+  border: 1px solid #3a342c;
+  padding: 12px;
+}
+
+.theme-light .card { background: #f7f1e6; color: #221c16; }
+
+.preview-label { letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; }
+
+.lightbox {
+  position: fixed;
+  inset: 5vh 10vw;
+  background: #1c1916;
+  border: 1px solid #4a4136;
+  padding: 16px;
+  overflow: auto;
+}
+
+.lightbox img { max-width: 100%; max-height: 50vh; }
+
+.swatches { display: flex; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+@media (max-width: 800px) {
+  .workspace { grid-template-columns: 1fr; }
+}
