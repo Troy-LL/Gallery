@@ -41,6 +41,7 @@ export function App() {
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stripExif, setStripExif] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [mode, setMode] = useState<WorkspaceMode>("gallery");
   const [tile, setTile] = useState(160);
@@ -119,7 +120,8 @@ export function App() {
   }
 
   function onExport() {
-    if (!trayReady) return;
+    if (!trayReady || exporting) return;
+    setExporting(true);
     void fetch("/api/export", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -135,7 +137,8 @@ export function App() {
         link.click();
         URL.revokeObjectURL(url);
       })
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Export failed"));
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Export failed"))
+      .finally(() => setExporting(false));
   }
 
   const wheelSlot: WheelSlotProps = {
@@ -293,13 +296,14 @@ export function App() {
             <Tray
               records={gridRecords}
               orderedIds={trayIds}
-              visibleIds={visibleIds}
               onReorder={setTrayIds}
               onToggle={toggleTrayId}
               onInspect={openInspect}
-              onAddVisible={addVisibleToTray}
               stripExif={stripExif}
               onStripExif={setStripExif}
+              platformId={platformId}
+              exporting={exporting}
+              onExport={onExport}
             />
           ) : null}
         </main>

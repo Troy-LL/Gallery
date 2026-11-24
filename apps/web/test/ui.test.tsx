@@ -138,7 +138,7 @@ describe("ui helpers", () => {
     expect(preview).toBeTruthy();
     expect(preview?.disabled).toBe(true);
     expect(host.textContent).toContain("Add photos to the set");
-    expect(host.textContent).toContain("Click photos to build a set");
+    expect(host.textContent).toContain("Click photos to build a selection");
     expect(host.querySelector("[aria-label='Color wheel']")).toBeTruthy();
   });
 });

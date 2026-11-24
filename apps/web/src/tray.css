@@ -1,31 +1,62 @@
 .tray {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  height: 96px;
+  box-sizing: border-box;
+  margin: 0 -16px -16px;
+  padding: 0 16px;
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.tray-header {
-  display: flex;
-  gap: 12px;
+  flex-direction: row;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
 }
 
+.tray-count,
 .tray-empty {
   margin: 0;
+  flex-shrink: 0;
+  font-size: 13px;
   color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.tray-count {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.export-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 24px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tray .primary {
+  flex-shrink: 0;
 }
 
 .tray-ids {
   display: flex;
+  flex: 1;
+  min-width: 0;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   list-style: none;
   margin: 0;
   padding: 0;
+  align-items: center;
+}
+
+.tray-ids li {
+  flex: 0 0 auto;
 }
 
 .tray-tile {
@@ -58,8 +89,4 @@
   background: var(--ink);
   color: var(--paper);
   pointer-events: none;
-}
-
-.export-options {
-  margin-left: auto;
 }
