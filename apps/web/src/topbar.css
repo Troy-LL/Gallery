@@ -74,9 +74,28 @@ header nav,
   box-shadow: 0 12px 32px -8px rgb(20 20 19 / 0.14);
 }
 
+.import-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.import-row-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.import-row-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+
 .tray-hint {
   font-size: 0.875rem;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 .nl-filter {
