@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import type { Facets, FilterChip, PlatformConfig } from "@gallery/core";
-import { emptyQuery, estimate, loadPlatforms, queryLibrary, seedLibrary, type PublicRecord } from "./api/client";
+import {
+  emptyQuery,
+  estimate,
+  loadPlatforms,
+  naturalLanguage,
+  queryLibrary,
+  seedLibrary,
+  type PublicRecord,
+} from "./api/client";
 import { Grid } from "./grid/Grid";
 import { Lightbox } from "./lightbox/Lightbox";
 import { Preview } from "./preview/Preview";
 import { Tray } from "./tray/Tray";
 import { Wheel } from "./wheel/Wheel";
 import type { WheelTool } from "./wheel/gesture";
+import { removeChipFromFacets, withTagStrictness } from "./facets";
 import { GridHeader } from "./shell/GridHeader";
 import { Rail } from "./shell/Rail";
 import { TopBar, type WorkspaceMode } from "./shell/TopBar";
@@ -46,8 +55,29 @@ export function App() {
   const [mode, setMode] = useState<WorkspaceMode>("gallery");
   const [tile, setTile] = useState(160);
   const [needsTagsFilter, setNeedsTagsFilter] = useState(false);
+  const [strictness, setStrictness] = useState(0.5);
   const addPhotosRef = useRef<HTMLButtonElement>(null);
   const importPopoverRef = useRef<HTMLDivElement>(null);
+
+  function toggleFacetList<Key extends "aspect_ratio" | "sharpness" | "temperature" | "status">(
+    key: Key,
+    value: NonNullable<Facets[Key]>[number],
+  ) {
+    const current = facets[key] as typeof value[] | undefined;
+    const set = new Set(current ?? []);
+    if (set.has(value)) set.delete(value);
+    else set.add(value);
+    const list = [...set];
+    const next = { ...facets, [key]: list.length ? list : undefined };
+    setFacets(next);
+    void reload(next, wheelSelection);
+  }
+
+  function applyFacets(next: Facets) {
+    const strict = withTagStrictness(next, strictness);
+    setFacets(strict);
+    void reload(strict, wheelSelection);
+  }
 
   const trayReady = trayIds.length > 0;
   const showWorkspace = total > 0 || Boolean(error);
@@ -253,23 +283,55 @@ export function App() {
             return reload(facets, []);
           });
         }}
-        onExport={onExport}
         matched={matched}
         total={total}
         chips={chips}
         onRemoveChip={(chipId) => {
+          const removed = chips.find((item) => item.id === chipId);
           const nextChips = chips.filter((item) => item.id !== chipId);
           setChips(nextChips);
-          const next: Facets = {};
-          for (const item of nextChips) Object.assign(next, item.facets);
-          setFacets(next);
-          void reload(next, wheelSelection);
+          if (!removed) return;
+          applyFacets(withTagStrictness(removeChipFromFacets(facets, removed.facets, nextChips), strictness));
         }}
         facets={facets}
         onOrientation={(orientation) => {
           const next = { ...facets, orientation: facets.orientation?.[0] === orientation ? undefined : [orientation] };
-          setFacets(next);
-          void reload(next, wheelSelection);
+          applyFacets(next);
+        }}
+        onAspectRatio={(bucket) => toggleFacetList("aspect_ratio", bucket)}
+        onSharpness={(value) => toggleFacetList("sharpness", value)}
+        onTemperature={(value) => toggleFacetList("temperature", value)}
+        onFavorites={() => {
+          const next = { ...facets, favorites: facets.favorites ? undefined : true };
+          applyFacets(next);
+        }}
+        onNeverUsed={() => {
+          const next = { ...facets, neverUsed: facets.neverUsed ? undefined : true };
+          applyFacets(next);
+        }}
+        onStatus={(value) => toggleFacetList("status", value)}
+        onClearFilters={clearFilters}
+        onNaturalLanguage={async (text) => {
+          const result = await naturalLanguage(text);
+          const existing = new Set(chips.map((chip) => chip.id));
+          const incoming = result.chips
+            .filter((chip) => !existing.has(chip.id))
+            .map((chip) => ({ ...chip, facets: withTagStrictness(chip.facets, strictness) }));
+          const nextChips = [...chips, ...incoming];
+          setChips(nextChips);
+          const next = { ...facets };
+          for (const chip of incoming) Object.assign(next, chip.facets);
+          applyFacets(next);
+        }}
+        strictness={strictness}
+        onStrictness={(value) => {
+          setStrictness(value);
+          const nextChips = chips.map((chip) => ({
+            ...chip,
+            facets: withTagStrictness(chip.facets, value),
+          }));
+          setChips(nextChips);
+          applyFacets(withTagStrictness(facets, value));
         }}
       />
       {error ? <p role="status">{error}</p> : null}

@@ -1,18 +1,31 @@
-header {
+.topbar-shell {
   display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 12px;
   padding: 16px 20px;
   border-bottom: 1px solid var(--line);
   background: var(--elevated);
 }
 
-h1 {
+.top-bar-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.top-bar-row-primary {
+  justify-content: space-between;
+}
+
+.top-bar-row-filters {
+  width: 100%;
+}
+
+.product-mark {
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
@@ -66,6 +79,21 @@ header nav,
   color: var(--ink-3);
 }
 
+.nl-filter {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.nl-filter input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chrome);
+  background: var(--surface);
+  color: var(--ink-1);
+  font: inherit;
+}
+
 .filters,
 .chips {
   display: flex;
@@ -79,4 +107,16 @@ header nav,
   font-size: 0.875rem;
   font-variant-numeric: tabular-nums;
   color: var(--ink-2);
+}
+
+.strictness {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.strictness input[type="range"] {
+  width: 120px;
 }
