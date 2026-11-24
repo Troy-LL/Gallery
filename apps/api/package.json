@@ -1,0 +1,14 @@
+{
+  "name": "@gallery/api",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@gallery/core": "workspace:*",
+    "@gallery/importer": "workspace:*",
+    "@gallery/storage": "workspace:*",
+    "@hono/node-server": "^1.19.6",
+    "fflate": "^0.8.2",
+    "hono": "^4.10.7",
+    "sharp": "^0.34.5"
+  }
+}

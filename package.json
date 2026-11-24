@@ -1,0 +1,31 @@
+{
+  "name": "gallery",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.23.0",
+  "dependencies": {
+    "@gallery/core": "workspace:*",
+    "@gallery/importer": "workspace:*",
+    "@gallery/storage": "workspace:*"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+    "gallery-eval": "tsx packages/importer/src/eval/cli.ts",
+    "dev:api": "tsx apps/api/src/cli.ts",
+    "dev:web": "node apps/web/node_modules/vite/bin/vite.js --config apps/web/vite.config.ts --host 127.0.0.1 --port 5173",
+    "bench": "tsx scripts/bench-10k.ts"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.14",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "happy-dom": "^20.0.10",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4",
+    "vitest": "^4.0.14"
+  }
+}

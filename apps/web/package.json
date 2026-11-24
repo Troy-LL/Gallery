@@ -1,0 +1,17 @@
+{
+  "name": "@gallery/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@gallery/core": "workspace:*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "vite": "^7.2.4"
+  }
+}

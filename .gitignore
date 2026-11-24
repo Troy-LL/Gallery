@@ -2,3 +2,10 @@ scratch/
 .env
 .env.*
 .DS_Store
+node_modules/
+dist/
+*.tsbuildinfo
+data/
+coverage/
+.wrangler/
+evals/*-jev-*.json
