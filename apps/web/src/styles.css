@@ -47,11 +47,118 @@ header,
 .actions,
 .filters,
 .chips,
-form {
+form,
+.top-bar {
   display: flex;
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.top-bar {
+  flex: 1;
+  justify-content: flex-end;
+  gap: 16px;
+}
+
+.top-bar-primary,
+.top-bar-filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.top-bar-primary {
+  position: relative;
+}
+
+.import-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+  padding: 12px;
+  background: var(--elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chrome);
+  box-shadow: 0 12px 32px -8px rgb(20 20 19 / 0.14);
+}
+
+.tray-hint {
+  font-size: 0.875rem;
+  color: var(--ink-3);
+}
+
+.main-stage {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.main-stage > .grid-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.preview-panel {
+  flex: 0 0 auto;
+  max-width: min(100%, 920px);
+  overflow: auto;
+}
+
+.tray-slot {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tray-empty {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.tray-ids {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tray-ids img {
+  display: block;
+  border-radius: var(--radius-chrome);
+  border: 1px solid var(--line);
+  object-fit: cover;
+}
+
+.export-options {
+  margin-left: auto;
+}
+
+button:disabled,
+.chrome-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  button:disabled:hover,
+  .chrome-btn:disabled:hover {
+    background: var(--fill);
+    border-color: var(--line);
+    transform: none;
+  }
 }
 
 header {
@@ -131,6 +238,10 @@ button:not(.tile):focus-visible {
   display: grid;
   grid-template-columns: 280px 1fr;
   min-height: calc(100vh - 72px);
+}
+
+.workspace:not(:has(aside)) {
+  grid-template-columns: 1fr;
 }
 
 aside,
