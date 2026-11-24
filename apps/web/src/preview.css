@@ -53,14 +53,39 @@
   margin-bottom: 10px;
 }
 
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-chrome);
+  background: var(--fill);
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.preview-mark {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
 .card-head h2 {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
-  text-transform: capitalize;
 }
 
-.card-head p {
+.card-head .surface {
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--ink-3);
@@ -109,6 +134,11 @@
   border: 1px solid var(--line);
   border-radius: calc(var(--radius-chrome) - 2px);
   background: var(--elevated);
+  cursor: grab;
+}
+
+.order-thumb:active {
+  cursor: grabbing;
 }
 
 .order-index {
@@ -118,7 +148,7 @@
   font-size: 11px;
   line-height: 1;
   padding: 2px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-chrome);
   background: color-mix(in oklch, var(--ink) 72%, transparent);
   color: var(--paper);
 }
@@ -131,17 +161,55 @@
   display: block;
 }
 
-.order-actions {
+.caption-field {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  width: 100%;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
 }
 
-.order button {
+.caption-field textarea {
   width: 100%;
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.2;
-  padding: 3px 4px;
+  min-height: 64px;
+  resize: vertical;
+}
+
+.caption {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+
+.see-more {
+  color: var(--ink-3);
+}
+
+.badge-detail {
+  display: none;
+}
+
+.badge:hover .badge-detail,
+.badge:focus-within .badge-detail {
+  display: block;
+  margin-top: 4px;
+  font-weight: 400;
+}
+
+.preview[data-theme="dark"] {
+  --paper: #141413;
+  --elevated: #1c1c1a;
+  --fill: #242422;
+  --fill-hover: #2e2e2b;
+  --line: #343431;
+  --ink: #f4f4f1;
+  --ink-2: #c2c2bb;
+  --ink-3: #8e8e88;
+  color: var(--ink);
+  background: var(--paper);
+  border-radius: var(--radius-chrome);
+}
+
+.preview[data-focus="focus"] .card {
+  width: min(100%, 480px);
 }
