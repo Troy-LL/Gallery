@@ -4,17 +4,21 @@ import type { PublicRecord } from "../api/client";
 export type TrayProps = {
   records: PublicRecord[];
   orderedIds: string[];
-  visibleIds: string[];
   onReorder: (ids: string[]) => void;
   onToggle: (id: string) => void;
   onInspect: (id: string) => void;
-  onAddVisible: () => void;
   stripExif: boolean;
   onStripExif: (value: boolean) => void;
+  platformId: string;
+  exporting: boolean;
+  onExport: () => void;
 };
 
 export function Tray(props: TrayProps) {
   const dragId = useRef<string | null>(null);
+  const count = props.orderedIds.length;
+  const exportDisabled = count === 0 || props.exporting;
+  const exportLabel = props.exporting ? "Exporting…" : `Export ${props.platformId} zip`;
 
   function move(dragged: string, target: string) {
     if (dragged === target) return;
@@ -30,19 +34,24 @@ export function Tray(props: TrayProps) {
   }
 
   return (
-    <section className="tray" aria-label="Selection tray">
-      <div className="tray-header">
-        <button type="button" className="chrome-btn" onClick={props.onAddVisible} disabled={props.visibleIds.length === 0}>
-          Add visible
-        </button>
-        <label className="export-options">
-          <input type="checkbox" checked={props.stripExif} aria-label="Strip EXIF" onChange={(event) => props.onStripExif(event.target.checked)} /> Strip EXIF
-        </label>
+    <section className="tray" aria-label="Selection">
+      <div className="tray-bar">
+        <div className="tray-meta">
+          <h2 className="tray-title">Selection</h2>
+          {count > 0 ? <p className="tray-count">{count} in selection</p> : <p className="tray-empty">Click photos to build a selection</p>}
+        </div>
+        <div className="tray-actions">
+          <label className="export-options">
+            <input type="checkbox" checked={props.stripExif} aria-label="Strip EXIF" onChange={(event) => props.onStripExif(event.target.checked)} />
+            Strip EXIF
+          </label>
+          <button type="button" className="chrome-btn primary" disabled={exportDisabled} onClick={props.onExport}>
+            {exportLabel}
+          </button>
+        </div>
       </div>
-      {props.orderedIds.length === 0 ? (
-        <p className="tray-empty">Click photos to build a set</p>
-      ) : (
-        <ol className="tray-ids" role="listbox" aria-label="Set order">
+      {count > 0 ? (
+        <ol className="tray-ids" role="listbox" aria-label="Selection order">
           {props.orderedIds.map((id) => {
             const record = props.records.find((item) => item.id === id);
             return (
@@ -74,7 +83,7 @@ export function Tray(props: TrayProps) {
             );
           })}
         </ol>
-      )}
+      ) : null}
     </section>
   );
 }
