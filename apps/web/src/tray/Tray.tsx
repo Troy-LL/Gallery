@@ -35,55 +35,48 @@ export function Tray(props: TrayProps) {
 
   return (
     <section className="tray" aria-label="Selection">
-      <div className="tray-bar">
-        <div className="tray-meta">
-          <h2 className="tray-title">Selection</h2>
-          {count > 0 ? <p className="tray-count">{count} in selection</p> : <p className="tray-empty">Click photos to build a selection</p>}
-        </div>
-        <div className="tray-actions">
-          <label className="export-options">
-            <input type="checkbox" checked={props.stripExif} aria-label="Strip EXIF" onChange={(event) => props.onStripExif(event.target.checked)} />
-            Strip EXIF
-          </label>
-          <button type="button" className="chrome-btn primary" disabled={exportDisabled} onClick={props.onExport}>
-            {exportLabel}
-          </button>
-        </div>
-      </div>
-      {count > 0 ? (
-        <ol className="tray-ids" role="listbox" aria-label="Selection order">
-          {props.orderedIds.map((id) => {
-            const record = props.records.find((item) => item.id === id);
-            return (
-              <li key={id}>
-                <button
-                  type="button"
-                  className="tray-tile"
-                  role="option"
-                  aria-selected="true"
-                  draggable
-                  onDragStart={() => {
-                    dragId.current = id;
-                  }}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => onDrop(event, id)}
-                  onClick={() => props.onToggle(id)}
-                  onDoubleClick={() => props.onInspect(id)}
-                  onKeyDown={(event) => {
-                    if (event.key === " ") {
-                      event.preventDefault();
-                      props.onInspect(id);
-                    }
-                  }}
-                >
-                  {record ? <img src={`/api/media/${id}?kind=thumb`} alt="" width={48} height={48} draggable={false} /> : id}
-                  <span className="tray-check" aria-hidden="true">✓</span>
-                </button>
-              </li>
-            );
-          })}
-        </ol>
-      ) : null}
+      <p className={count > 0 ? "tray-count" : "tray-empty"}>
+        {count > 0 ? `${count} in selection` : "Click photos to build a selection"}
+      </p>
+      <ol className="tray-ids" role="listbox" aria-label="Selection order">
+        {props.orderedIds.map((id) => {
+          const record = props.records.find((item) => item.id === id);
+          return (
+            <li key={id}>
+              <button
+                type="button"
+                className="tray-tile"
+                role="option"
+                aria-selected="true"
+                draggable
+                onDragStart={() => {
+                  dragId.current = id;
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => onDrop(event, id)}
+                onClick={() => props.onToggle(id)}
+                onDoubleClick={() => props.onInspect(id)}
+                onKeyDown={(event) => {
+                  if (event.key === " ") {
+                    event.preventDefault();
+                    props.onInspect(id);
+                  }
+                }}
+              >
+                {record ? <img src={`/api/media/${id}?kind=thumb`} alt="" width={48} height={48} draggable={false} /> : id}
+                <span className="tray-check" aria-hidden="true">✓</span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      <label className="export-options">
+        <input type="checkbox" checked={props.stripExif} aria-label="Strip EXIF" onChange={(event) => props.onStripExif(event.target.checked)} />
+        Strip EXIF
+      </label>
+      <button type="button" className="chrome-btn primary" disabled={exportDisabled} onClick={props.onExport}>
+        {exportLabel}
+      </button>
     </section>
   );
 }

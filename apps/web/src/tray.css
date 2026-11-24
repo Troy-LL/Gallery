@@ -5,72 +5,54 @@
   height: 96px;
   box-sizing: border-box;
   margin: 0 -16px -16px;
-  padding: 12px 16px;
+  padding: 0 16px;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-top: 1px solid var(--line);
-  background: var(--paper);
-}
-
-.tray-bar {
-  display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 12px;
-  flex-shrink: 0;
-  min-height: 0;
-}
-
-.tray-meta {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  min-width: 0;
-}
-
-.tray-title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
 }
 
 .tray-count,
 .tray-empty {
   margin: 0;
+  flex-shrink: 0;
   font-size: 13px;
   color: var(--ink-2);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.tray-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-left: auto;
-  flex-shrink: 0;
+.tray-count {
+  color: var(--ink);
+  font-weight: 500;
 }
 
 .export-options {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
   min-height: 24px;
   cursor: pointer;
   user-select: none;
 }
 
+.tray .primary {
+  flex-shrink: 0;
+}
+
 .tray-ids {
   display: flex;
+  flex: 1;
+  min-width: 0;
   gap: 8px;
   flex-wrap: nowrap;
   overflow-x: auto;
   list-style: none;
   margin: 0;
-  padding: 0 0 2px;
-  flex: 1;
-  min-height: 0;
+  padding: 0;
+  align-items: center;
 }
 
 .tray-ids li {

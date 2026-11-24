@@ -54,8 +54,7 @@ describe("Tray", () => {
     expect(style?.bottom).toBe("0px");
     expect(style?.height).toBe("96px");
 
-    const withThumbs = mountTray({ orderedIds: ["photo-a"] });
-    const strip = withThumbs.host.querySelector(".tray-ids");
+    const strip = host.querySelector(".tray-ids");
     const stripStyle = strip ? getComputedStyle(strip) : null;
     expect(stripStyle?.overflowX).toBe("auto");
     expect(stripStyle?.flexWrap).toBe("nowrap");
@@ -65,12 +64,29 @@ describe("Tray", () => {
     const { host, onExport } = mountTray({ orderedIds: ["photo-a", "photo-b"] });
     expect(host.textContent).toContain("2 in selection");
 
-    const exportButton = [...host.querySelectorAll("button")].find((button) => button.classList.contains("primary"));
-    expect(exportButton?.textContent?.trim()).toBe("Export instagram zip");
-    expect(exportButton?.disabled).toBe(false);
+    const tray = host.querySelector("section.tray");
+    const thumbStrip = host.querySelector(".tray-ids");
+    const exportButton = host.querySelector("button.primary");
+    expect(tray && thumbStrip && exportButton).toBeTruthy();
+    expect(getComputedStyle(tray!).height).toBe("96px");
+    expect(thumbStrip!.parentElement).toBe(tray);
+    expect(exportButton!.parentElement).toBe(tray);
+    const trayBox = tray!.getBoundingClientRect();
+    const stripBox = thumbStrip!.getBoundingClientRect();
+    if (trayBox.height > 0) {
+      expect(trayBox.height).toBeCloseTo(96, 0);
+      expect(stripBox.top).toBeGreaterThanOrEqual(trayBox.top);
+      expect(stripBox.bottom).toBeLessThanOrEqual(trayBox.bottom + 1);
+      expect(stripBox.top - trayBox.top).toBeLessThan(24);
+    } else {
+      expect(Math.abs(thumbStrip!.offsetTop - exportButton!.offsetTop)).toBeLessThan(8);
+    }
+
+    expect(exportButton!.textContent?.trim()).toBe("Export instagram zip");
+    expect(exportButton!.disabled).toBe(false);
 
     act(() => {
-      exportButton?.click();
+      exportButton!.click();
     });
     expect(onExport).toHaveBeenCalledTimes(1);
   });
