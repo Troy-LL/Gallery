@@ -1,0 +1,135 @@
+{
+  "version": "v1",
+  "questions": [
+    {
+      "id": "time_of_day",
+      "kind": "choice",
+      "name": "time_of_day",
+      "definition": "The light in the photograph, from what is visible, not from the clock.",
+      "example_image_ids": [],
+      "options": [
+        { "label": "golden hour", "description": "Warm low-angle sunlight and long shadows." },
+        { "label": "daylight", "description": "Bright daytime light, sun high enough that the scene is not golden or blue." },
+        { "label": "blue hour", "description": "Cool dim light just before sunrise or after sunset." },
+        { "label": "night", "description": "Dark scene lit by night, streetlights, or indoor lamps after dark." },
+        { "label": "indoor", "description": "The light is from an interior, with no clear outdoor sky." },
+        { "label": "other / none of these", "description": "None of the lighting labels fit." }
+      ]
+    },
+    {
+      "id": "subject_type",
+      "kind": "choice",
+      "name": "subject_type",
+      "definition": "The main thing the frame is about.",
+      "example_image_ids": [],
+      "options": [
+        { "label": "people", "description": "A person is the subject." },
+        { "label": "food", "description": "Food or a drink is the subject." },
+        { "label": "places", "description": "A place or view is the subject." },
+        { "label": "nature", "description": "Plants, weather, or natural land is the subject." },
+        { "label": "architecture", "description": "A building or built structure is the subject." },
+        { "label": "products", "description": "A product made to be shown is the subject." },
+        { "label": "objects", "description": "A physical object is the subject." },
+        { "label": "animals", "description": "An animal is the subject." },
+        { "label": "abstract", "description": "Color, texture, or shape is the subject, without a clear thing." },
+        { "label": "other / none of these", "description": "None of the subject labels fit." }
+      ]
+    },
+    {
+      "id": "people",
+      "kind": "choice",
+      "name": "people",
+      "definition": "How many people are visible, in coarse buckets.",
+      "example_image_ids": [],
+      "options": [
+        { "label": "none", "description": "No person is visible." },
+        { "label": "one person", "description": "Exactly one person is visible." },
+        { "label": "several", "description": "More than one person is visible." }
+      ]
+    },
+    {
+      "id": "setting",
+      "kind": "choice",
+      "name": "setting",
+      "definition": "Where the photograph was made.",
+      "example_image_ids": [],
+      "options": [
+        { "label": "indoor", "description": "Inside a room or covered interior." },
+        { "label": "outdoor", "description": "Outside, and not specifically urban or wild." },
+        { "label": "urban", "description": "A city street, building front, or built-up outdoor place." },
+        { "label": "nature", "description": "A wild or planted outdoor place with little built structure." },
+        { "label": "studio", "description": "A controlled backdrop or studio setup." },
+        { "label": "other / none of these", "description": "None of the setting labels fit." }
+      ]
+    },
+    {
+      "id": "photo_style",
+      "kind": "choice",
+      "name": "photo_style",
+      "definition": "How the photograph is framed.",
+      "example_image_ids": [],
+      "options": [
+        { "label": "candid", "description": "The subject does not look posed for the camera." },
+        { "label": "posed", "description": "The subject is arranged for the camera." },
+        { "label": "flat lay", "description": "Objects are arranged on a surface and shot from above." },
+        { "label": "close-up", "description": "The frame is filled by a small area of the subject." },
+        { "label": "wide shot", "description": "The frame shows a wide view of a place or group." },
+        { "label": "aerial", "description": "The camera is clearly above the subject, looking down from height." },
+        { "label": "silhouette", "description": "The subject is dark against a brighter background." },
+        { "label": "other / none of these", "description": "None of the framing labels fit." }
+      ]
+    },
+    { "id": "mood_cozy", "kind": "yesno", "name": "mood cozy", "definition": "The photograph feels cozy: close, warm, and sheltered.", "example_image_ids": [] },
+    { "id": "mood_energetic", "kind": "yesno", "name": "mood energetic", "definition": "The photograph feels energetic: motion, high contrast, or a bright active scene.", "example_image_ids": [] },
+    { "id": "mood_calm", "kind": "yesno", "name": "mood calm", "definition": "The photograph feels calm: still, quiet, and uncluttered.", "example_image_ids": [] },
+    { "id": "mood_moody", "kind": "yesno", "name": "mood moody", "definition": "The photograph feels moody: dim light and heavy shadow.", "example_image_ids": [] },
+    { "id": "mood_playful", "kind": "yesno", "name": "mood playful", "definition": "The photograph feels playful: bright color or a lighthearted subject.", "example_image_ids": [] },
+    { "id": "mood_dreamy", "kind": "yesno", "name": "mood dreamy", "definition": "The photograph feels dreamy: soft focus, haze, or pastel light.", "example_image_ids": [] },
+    { "id": "mood_bold", "kind": "yesno", "name": "mood bold", "definition": "The photograph feels bold: strong color, hard contrast, or a graphic shape.", "example_image_ids": [] },
+    { "id": "mood_nostalgic", "kind": "yesno", "name": "mood nostalgic", "definition": "The photograph feels nostalgic: faded color or an older print look.", "example_image_ids": [] },
+    { "id": "mood_luxe", "kind": "yesno", "name": "mood luxe", "definition": "The photograph feels luxe: polished materials, careful light, and little clutter.", "example_image_ids": [] },
+    { "id": "mood_raw", "kind": "yesno", "name": "mood raw", "definition": "The photograph feels raw: harsh light, grain, or an unpolished moment.", "example_image_ids": [] },
+    { "id": "aesthetic_minimal", "kind": "yesno", "name": "aesthetic minimal", "definition": "Few objects, large empty areas, and a restrained palette.", "example_image_ids": [] },
+    { "id": "aesthetic_vintage", "kind": "yesno", "name": "aesthetic vintage", "definition": "Colors and contrast look like an older print or aged paper.", "example_image_ids": [] },
+    { "id": "aesthetic_film", "kind": "yesno", "name": "aesthetic film", "definition": "Grainy, faded colors, soft contrast, like a 35mm film photo.", "example_image_ids": [] },
+    { "id": "aesthetic_y2k", "kind": "yesno", "name": "aesthetic y2k", "definition": "Glossy early-2000s color, flash, or chrome details.", "example_image_ids": [] },
+    { "id": "aesthetic_editorial", "kind": "yesno", "name": "aesthetic editorial", "definition": "Styled like a magazine photograph, with deliberate pose and light.", "example_image_ids": [] },
+    { "id": "aesthetic_street", "kind": "yesno", "name": "aesthetic street", "definition": "A public street moment, shot as it happened.", "example_image_ids": [] },
+    { "id": "aesthetic_cinematic", "kind": "yesno", "name": "aesthetic cinematic", "definition": "Wide contrast and color that looks like a film still.", "example_image_ids": [] },
+    { "id": "aesthetic_clean", "kind": "yesno", "name": "aesthetic clean", "definition": "Even light, tidy frame, and no visible clutter.", "example_image_ids": [] },
+    { "id": "aesthetic_grainy", "kind": "yesno", "name": "aesthetic grainy", "definition": "Visible grain or noise across the frame.", "example_image_ids": [] },
+    { "id": "aesthetic_maximalist", "kind": "yesno", "name": "aesthetic maximalist", "definition": "The frame is packed with color, pattern, or objects.", "example_image_ids": [] },
+    { "id": "season_summer", "kind": "yesno", "name": "season summer", "definition": "Bright sun, warm weather, or summer clothes and plants.", "example_image_ids": [] },
+    { "id": "season_rainy", "kind": "yesno", "name": "season rainy", "definition": "Rain, wet ground, or umbrellas are visible.", "example_image_ids": [] },
+    { "id": "season_festive", "kind": "yesno", "name": "season festive", "definition": "Decorations or a celebration are visible.", "example_image_ids": [] },
+    { "id": "season_holiday", "kind": "yesno", "name": "season holiday", "definition": "A holiday marker such as lights, a tree, or a feast is visible.", "example_image_ids": [] },
+    { "id": "season_cold", "kind": "yesno", "name": "season cold", "definition": "Snow, frost, heavy coats, or bare winter trees are visible.", "example_image_ids": [] },
+    { "id": "season_tropical", "kind": "yesno", "name": "season tropical", "definition": "Palm trees, turquoise water, or dense tropical plants are visible.", "example_image_ids": [] },
+    { "id": "has_text", "kind": "yesno", "name": "has_text", "definition": "Letters or numbers are visible in the photograph.", "example_image_ids": [] },
+    { "id": "subject_visible", "kind": "yesno", "name": "subject_visible", "definition": "A clear main subject is visible, rather than an empty texture or frame.", "example_image_ids": [] },
+    {
+      "id": "calm_energetic",
+      "kind": "score",
+      "name": "calm to energetic",
+      "definition": "Where the photograph sits between calm and energetic.",
+      "example_image_ids": [],
+      "rubric": ["calm", "somewhat calm", "neither", "somewhat energetic", "energetic"]
+    },
+    {
+      "id": "playful_serious",
+      "kind": "score",
+      "name": "playful to serious",
+      "definition": "Where the photograph sits between playful and serious.",
+      "example_image_ids": [],
+      "rubric": ["playful", "somewhat playful", "neither", "somewhat serious", "serious"]
+    },
+    {
+      "id": "rustic_polished",
+      "kind": "score",
+      "name": "rustic to polished",
+      "definition": "Where the photograph sits between rustic and polished.",
+      "example_image_ids": [],
+      "rubric": ["rustic", "somewhat rustic", "neither", "somewhat polished", "polished"]
+    }
+  ]
+}

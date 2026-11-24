@@ -1,0 +1,16 @@
+{
+  "id": "linkedin",
+  "version": "1",
+  "last_verified": "2026-11-24",
+  "export_px": 1200,
+  "surfaces": [
+    { "id": "feed_landscape", "label": "Feed landscape", "aspect": 1.91, "kind": "single", "min_images": 1, "max_images": 1 },
+    { "id": "feed_square", "label": "Feed square", "aspect": 1, "kind": "single", "min_images": 1, "max_images": 1 },
+    { "id": "feed_portrait", "label": "Feed portrait", "aspect": 0.8, "kind": "single", "min_images": 1, "max_images": 1 },
+    { "id": "multi", "label": "Multi-image", "aspect": 1, "kind": "grid", "min_images": 2, "max_images": 9 },
+    { "id": "document", "label": "Document", "aspect": 0.77, "kind": "document", "min_images": 2, "max_images": 20 }
+  ],
+  "frame_tokens": { "preview_label": "Preview", "avatar": "placeholder", "name": "Member" },
+  "media_rules": { "fit": "cover" },
+  "caption_rules": { "max_chars": 210, "max_lines": 3, "see_more_label": "see more" }
+}

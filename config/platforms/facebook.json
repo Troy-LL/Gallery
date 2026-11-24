@@ -1,0 +1,16 @@
+{
+  "id": "facebook",
+  "version": "1",
+  "last_verified": "2026-11-24",
+  "export_px": 1080,
+  "surfaces": [
+    { "id": "feed_single", "label": "Feed", "aspect": 1.91, "kind": "single", "min_images": 1, "max_images": 1 },
+    { "id": "grid_2", "label": "2 photos", "aspect": 1, "kind": "grid", "min_images": 2, "max_images": 2 },
+    { "id": "grid_3", "label": "3 photos", "aspect": 1, "kind": "grid", "min_images": 3, "max_images": 3 },
+    { "id": "grid_4", "label": "4 photos", "aspect": 1, "kind": "grid", "min_images": 4, "max_images": 4 },
+    { "id": "grid_5", "label": "5+ photos", "aspect": 1, "kind": "grid", "min_images": 5, "max_images": 10 }
+  ],
+  "frame_tokens": { "preview_label": "Preview", "avatar": "placeholder", "name": "Member" },
+  "media_rules": { "fit": "cover" },
+  "caption_rules": { "max_chars": 400, "max_lines": 5, "see_more_label": "see more" }
+}

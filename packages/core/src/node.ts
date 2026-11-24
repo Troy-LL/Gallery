@@ -1,0 +1,1 @@
+export { loadPlatformConfigs } from "./platforms.js";

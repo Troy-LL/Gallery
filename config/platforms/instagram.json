@@ -1,0 +1,16 @@
+{
+  "id": "instagram",
+  "version": "1",
+  "last_verified": "2026-11-24",
+  "export_px": 1080,
+  "surfaces": [
+    { "id": "feed_square", "label": "Feed square", "aspect": 1, "kind": "single", "min_images": 1, "max_images": 1 },
+    { "id": "feed_portrait", "label": "Feed portrait", "aspect": 0.8, "kind": "single", "min_images": 1, "max_images": 1 },
+    { "id": "feed_landscape", "label": "Feed landscape", "aspect": 1.91, "kind": "single", "min_images": 1, "max_images": 1 },
+    { "id": "carousel", "label": "Carousel", "aspect": 0.8, "kind": "carousel", "min_images": 2, "max_images": 10 },
+    { "id": "profile_grid", "label": "Profile grid", "aspect": 1, "kind": "grid", "min_images": 1, "max_images": 9, "columns": 3 }
+  ],
+  "frame_tokens": { "preview_label": "Preview", "avatar": "placeholder", "name": "Member" },
+  "media_rules": { "fit": "cover" },
+  "caption_rules": { "max_chars": 125, "max_lines": 2, "see_more_label": "see more" }
+}
