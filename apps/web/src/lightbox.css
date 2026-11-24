@@ -1,17 +1,79 @@
+.lightbox-root {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.lightbox-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(20 20 19 / 0.45);
+}
+
 .lightbox {
   position: fixed;
-  inset: 5vh 10vw;
+  inset: 5vh 4vw;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  gap: 16px;
   background: var(--elevated);
   border: 1px solid var(--line);
   border-radius: var(--radius-chrome);
   padding: 16px;
-  overflow: auto;
+  overflow: hidden;
   box-shadow: 0 24px 48px -12px rgb(20 20 19 / 0.18);
 }
 
-.lightbox img {
+.lightbox-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+}
+
+.lightbox-photo {
   max-width: 100%;
-  max-height: 50vh;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.lightbox-prev {
+  left: 8px;
+}
+
+.lightbox-next {
+  right: 8px;
+}
+
+.lightbox-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  overflow: auto;
+  border-left: 1px solid var(--line);
+  padding-left: 16px;
+}
+
+.lightbox-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.lightbox-status button[aria-checked="true"] {
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .swatches {
@@ -20,11 +82,65 @@
   flex-wrap: wrap;
 }
 
+.swatch {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
 .swatches button {
   min-width: 5.5rem;
+  min-height: 2.5rem;
   text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.swatch-hex {
   color: var(--ink);
   font-family: var(--font-mono);
   font-size: 0.875rem;
   font-variant-numeric: tabular-nums;
+}
+
+.tag-row,
+.lightbox-strip {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tag-chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.lightbox-strip img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+}
+
+.lightbox-side label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.lightbox-side input,
+.lightbox-side textarea {
+  width: 100%;
+}
+
+.lightbox-side section {
+  width: 100%;
+}
+
+.lightbox-side ul {
+  margin: 0;
+  padding-left: 1.1rem;
 }

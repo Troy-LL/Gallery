@@ -44,6 +44,22 @@ describe("local api", () => {
     expect(health.status).toBe(200);
   });
 
+  it("lists and creates a collection", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gallery-collections-"));
+    const app = createLocalApp({ dataDir: dir, dbPath: join(dir, "gallery.db") });
+    const created = await app.request("/api/collections", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "summer", name: "Summer", image_ids: ["img-1"] }),
+    });
+    expect(created.status).toBe(200);
+    const listed = await app.request("/api/collections");
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toEqual({
+      collections: [{ id: "summer", name: "Summer", image_ids: ["img-1"] }],
+    });
+  });
+
   it("rejects a token-gated request", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gallery-auth-"));
     const app = createLocalApp({ dataDir: dir, dbPath: join(dir, "gallery.db"), auth: { mode: "token", token: "secret" } });

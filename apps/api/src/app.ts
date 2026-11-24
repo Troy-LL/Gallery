@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import {
   acceptUpload,
   answersToChips,
+  collectionSchema,
   curationPatchSchema,
   formatSpend,
   groupNearDuplicates,
@@ -115,6 +116,12 @@ export function createApp(deps: AppDeps) {
     return c.json({ ok: true });
   });
   app.get("/api/posts", async (c) => c.json({ posts: await deps.store.listPosts() }));
+  app.get("/api/collections", async (c) => c.json({ collections: await deps.store.listCollections() }));
+  app.post("/api/collections", async (c) => {
+    const collection = collectionSchema.parse(await c.req.json());
+    await deps.store.createCollection(collection);
+    return c.json({ ok: true });
+  });
   app.get("/api/queue", async (c) => c.json(await deps.store.queueState()));
   app.post("/api/estimate", async (c) => {
     const body = (await c.req.json()) as { count?: number };
