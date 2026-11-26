@@ -90,7 +90,10 @@ button:not(.tile):not(.tray-tile)[aria-pressed="true"] {
 
 button[type="submit"],
 .actions button:last-child,
-.primary {
+.chrome-btn.primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
   font-weight: 500;
 }
 
@@ -169,7 +172,8 @@ main {
   }
 
   .chrome-btn[aria-pressed="true"]:hover,
-  button:not(.tile):not(.tray-tile)[aria-pressed="true"]:hover {
+  button:not(.tile):not(.tray-tile)[aria-pressed="true"]:hover,
+  .chrome-btn.primary:hover {
     background: var(--ink);
     border-color: var(--ink);
     color: var(--paper);

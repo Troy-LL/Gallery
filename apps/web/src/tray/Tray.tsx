@@ -1,4 +1,4 @@
-import { useRef, type DragEvent } from "react";
+import { useMemo, useRef, type DragEvent } from "react";
 import type { PublicRecord } from "../api/client";
 
 export type TrayProps = {
@@ -19,6 +19,10 @@ export function Tray(props: TrayProps) {
   const count = props.orderedIds.length;
   const exportDisabled = count === 0 || props.exporting;
   const exportLabel = props.exporting ? "Exporting…" : `Export ${props.platformId} zip`;
+  const recordsById = useMemo(
+    () => new Map(props.records.map((record) => [record.id, record])),
+    [props.records],
+  );
 
   function move(dragged: string, target: string) {
     if (dragged === target) return;
@@ -40,7 +44,7 @@ export function Tray(props: TrayProps) {
       </p>
       <ol className="tray-ids" role="listbox" aria-label="Selection order">
         {props.orderedIds.map((id) => {
-          const record = props.records.find((item) => item.id === id);
+          const record = recordsById.get(id);
           return (
             <li key={id}>
               <button
@@ -63,7 +67,16 @@ export function Tray(props: TrayProps) {
                   }
                 }}
               >
-                {record ? <img src={`/api/media/${id}?kind=thumb`} alt="" width={48} height={48} draggable={false} /> : id}
+                {record ? (
+                  <img
+                    src={`/api/media/${id}?kind=thumb`}
+                    alt=""
+                    width={48}
+                    height={48}
+                    decoding="async"
+                    draggable={false}
+                  />
+                ) : id}
                 <span className="tray-check" aria-hidden="true">✓</span>
               </button>
             </li>

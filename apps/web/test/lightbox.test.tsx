@@ -7,7 +7,7 @@ import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { syntheticRecord, type Swatch } from "@gallery/core";
 import { Lightbox } from "../src/lightbox/Lightbox";
-import type { PublicRecord } from "../src/api/client";
+import type { DetailRecord } from "../src/api/client";
 
 type FetchCall = { url: string; body: unknown };
 
@@ -17,7 +17,7 @@ function swatch(hex: string, weight: number): Swatch {
   return { hex, h: 0, s: 0, l: 0.5, oklch: { L: 0.5, C: 0, h: 0 }, weight };
 }
 
-function record(id: string): PublicRecord {
+function record(id: string): DetailRecord {
   const { embedding: _embedding, ...photo } = syntheticRecord(1, {
     id,
     status: "shortlisted",
@@ -72,14 +72,20 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mockFetch(photo: PublicRecord) {
+function mockFetch(photo: DetailRecord, extras: DetailRecord[] = []) {
+  const byId = new Map<string, DetailRecord>([photo, ...extras].map((item) => [item.id, item]));
   const calls: FetchCall[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo, init?: RequestInit) => {
     const url = String(input);
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     calls.push({ url, body });
+    if (url.startsWith("/api/images/")) {
+      const id = decodeURIComponent(url.slice("/api/images/".length));
+      const found = byId.get(id) ?? record(id);
+      return Response.json({ record: found });
+    }
     if (url === "/api/curation") return Response.json({ record: photo });
-    if (url === `/api/similar/${photo.id}`) return Response.json({ matches: [{ id: "img-9", score: 0.91 }] });
+    if (url.startsWith("/api/similar/")) return Response.json({ matches: [{ id: "img-9", score: 0.91 }] });
     if (url === "/api/posts") {
       return Response.json({
         posts: [
@@ -109,13 +115,13 @@ function mockFetch(photo: PublicRecord) {
   return calls;
 }
 
-async function renderLightbox(photo: PublicRecord, props?: { onClose?: () => void; onNavigate?: (id: string) => void }) {
-  const calls = mockFetch(photo);
+async function renderLightbox(photo: DetailRecord, props?: { onClose?: () => void; onNavigate?: (id: string) => void }) {
+  const previous = record("photo-0");
+  const next = record("photo-2");
+  const calls = mockFetch(photo, [previous, next]);
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  const previous = record("photo-0");
-  const next = record("photo-2");
   await act(async () => {
     root?.render(createElement(Lightbox, {
       record: photo,
@@ -273,5 +279,50 @@ describe("lightbox", () => {
     expect(body.image_ids).toEqual(["photo-1"]);
     expect(body.id.length).toBeGreaterThan(0);
     expect(host?.textContent).toContain("Winter");
+  });
+
+  it("fetches posts and collections once across navigation and swaps thumb to working on load", async () => {
+    const first = record("photo-1");
+    const second = record("photo-2");
+    const calls = mockFetch(first, [second]);
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    const onClose = vi.fn();
+    const onNavigate = vi.fn();
+    const onChange = vi.fn();
+    await act(async () => {
+      root?.render(createElement(Lightbox, {
+        record: first,
+        records: [first, second],
+        onClose,
+        onNavigate,
+        onChange,
+      }));
+    });
+    expect(host.querySelector("img.lightbox-thumb")?.getAttribute("src")).toBe("/api/media/photo-1?kind=thumb");
+    const working = host.querySelector("img.lightbox-working") as HTMLImageElement | null;
+    expect(working?.getAttribute("src")).toBe("/api/media/photo-1?kind=working");
+    expect(working?.getAttribute("decoding")).toBe("async");
+    await act(async () => {
+      working?.dispatchEvent(new Event("load"));
+    });
+    expect(host.querySelector("img.lightbox-thumb")).toBeNull();
+
+    await act(async () => {
+      root?.render(createElement(Lightbox, {
+        record: second,
+        records: [first, second],
+        onClose,
+        onNavigate,
+        onChange,
+      }));
+    });
+    expect(calls.filter((call) => call.url === "/api/posts")).toHaveLength(1);
+    expect(calls.filter((call) => call.url === "/api/collections")).toHaveLength(1);
+    expect(calls.filter((call) => call.url.startsWith("/api/images/")).map((call) => call.url)).toEqual([
+      "/api/images/photo-1",
+      "/api/images/photo-2",
+    ]);
   });
 });

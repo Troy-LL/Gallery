@@ -6,9 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { syntheticRecord } from "@gallery/core";
-import type { Facets } from "@gallery/core";
+import { selectionMatches, syntheticRecord, type Facets, type LibrarySummary } from "@gallery/core";
 import { Rail, type RailProps } from "../src/shell/Rail";
+import { Wheel } from "../src/wheel/Wheel";
 import { WheelToolMenu } from "../src/wheel/WheelToolMenu";
 import { WHEEL_TOOLS } from "../src/wheel/gesture";
 
@@ -97,7 +97,7 @@ async function key(canvas: HTMLCanvasElement, keyName: string, extras: Pick<Keyb
 }
 
 describe("wheel rail", () => {
-  it("rings selected dots without dropping the rest of the library", async () => {
+  it("keeps only the selected dots", async () => {
     const strokes: number[] = [];
     const fills: number[] = [];
     const original = HTMLCanvasElement.prototype.getContext;
@@ -128,10 +128,52 @@ describe("wheel rail", () => {
       strokes.length = 0;
       fills.length = 0;
       const selected = await mount(createElement(Rail, rail({ wheelSlot: slot({ records, selectedIds: ["picked"] }) })));
-      expect(fills.length).toBe(plainFills);
-      expect(fills.length).toBe(2);
+      expect(plainFills).toBe(2);
+      expect(fills.length).toBe(1);
       expect(strokes.length).toBeGreaterThan(plainStrokes);
       await selected.unmount();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = original;
+    }
+  });
+
+  it("names a drag beside the circle and keeps every dot", async () => {
+    const fills: number[] = [];
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function getContext(this: HTMLCanvasElement, type: string) {
+      if (type !== "2d") return original.call(this, type);
+      let radius = 0;
+      const context = new Proxy({} as CanvasRenderingContext2D, {
+        get(_target, prop) {
+          if (prop === "arc") return (_x: number, _y: number, next: number) => { radius = next; };
+          if (prop === "fill") return () => fills.push(radius);
+          if (prop === "fillText" || prop === "strokeText") return () => { fills.push(-1); };
+          return () => undefined;
+        },
+        set() { return true; },
+      });
+      return context;
+    } as HTMLCanvasElement["getContext"];
+    const records = [
+      syntheticRecord(1, { id: "near", dominant_oklch: { L: 0.5, C: 0.08, h: 10 } }),
+      syntheticRecord(2, { id: "far", dominant_oklch: { L: 0.5, C: 0.16, h: 200 } }),
+    ];
+    try {
+      const { host } = await mount(createElement(Rail, rail({
+        wheelSlot: slot({ records, maxChroma: 0.2, selectedIds: ["near"] }),
+      })));
+      const canvas = host.querySelector("canvas");
+      if (!(canvas instanceof HTMLCanvasElement)) throw new Error("missing canvas");
+      canvas.getBoundingClientRect = () => new DOMRect(0, 0, 240, 240);
+      await act(async () => {
+        canvas.dispatchEvent(new PointerEvent("pointerdown", { clientX: 220, clientY: 120, bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent("pointermove", { clientX: 230, clientY: 80, bubbles: true }));
+      });
+      const status = host.querySelector("[aria-label='Wheel selection']");
+      expect(status?.textContent).toMatch(/Wedge · \d+ photos/);
+      expect(canvas.contains(status)).toBe(false);
+      expect(fills.filter((radius) => radius > 0).length).toBe(1);
+      expect(fills).not.toContain(-1);
     } finally {
       HTMLCanvasElement.prototype.getContext = original;
     }
@@ -192,8 +234,9 @@ describe("wheel rail", () => {
     expect(canvas.getAttribute("aria-label")).toBe("Color wheel");
     expect(host.querySelector("[aria-label='Wheel keys']")).toBeNull();
     expect(host.textContent).not.toContain("Cursor hue");
-    expect(host.textContent).toContain("HUE");
-    expect(host.textContent).toContain("SATURATION: less → more");
+    expect(host.textContent).not.toContain("HUE");
+    expect(host.textContent).not.toContain("SATURATION");
+    expect(host.querySelector("[aria-label='Wheel selection']")?.textContent).toBe("0 selected");
 
     await key(canvas, " ");
     expect(onSelect).toHaveBeenLastCalledWith(["near"], "replace");
@@ -288,5 +331,107 @@ describe("wheel rail", () => {
     if (!(gray instanceof HTMLElement)) throw new Error("missing gray dot");
     expect(gray.style.top).toBe("75%");
     expect(gray.style.background).toBe("#bfbfbf");
+  });
+
+  it("matches core selectionMatches for lasso and brush across 5,000 records", async () => {
+    const records = Array.from({ length: 5000 }, (_, index) => syntheticRecord(index + 1));
+    const maxChroma = 0.25;
+    const onSelect = vi.fn();
+    const view = await mount(createElement(Wheel, {
+      records,
+      maxChroma,
+      tool: "lasso",
+      multiSwatch: false,
+      selectedIds: [],
+      onSelect,
+    }));
+    const canvas = view.host.querySelector("canvas");
+    if (!(canvas instanceof HTMLCanvasElement)) throw new Error("missing canvas");
+    canvas.getBoundingClientRect = () => new DOMRect(0, 0, 240, 240);
+    const toWheel = (clientX: number, clientY: number) => ({
+      x: (clientX / 240) * 2 - 1,
+      y: -((clientY / 240) * 2 - 1),
+    });
+
+    const lassoCoords: Array<[number, number]> = [
+      [130, 60],
+      [210, 60],
+      [210, 170],
+      [130, 170],
+      [130, 60],
+    ];
+    await act(async () => {
+      canvas.dispatchEvent(new PointerEvent("pointerdown", { clientX: lassoCoords[0][0], clientY: lassoCoords[0][1], bubbles: true }));
+      for (let i = 1; i < lassoCoords.length - 1; i += 1) {
+        canvas.dispatchEvent(new PointerEvent("pointermove", { clientX: lassoCoords[i][0], clientY: lassoCoords[i][1], bubbles: true }));
+      }
+      const end = lassoCoords[lassoCoords.length - 1];
+      canvas.dispatchEvent(new PointerEvent("pointerup", { clientX: end[0], clientY: end[1], bubbles: true }));
+    });
+    const lassoPoints = lassoCoords.map(([x, y]) => toWheel(x, y));
+    const expectedLasso = records
+      .filter((record) => selectionMatches(record, { type: "lasso", points: lassoPoints }, maxChroma))
+      .map((record) => record.id);
+    expect(expectedLasso.length).toBeGreaterThan(0);
+    expect(onSelect).toHaveBeenLastCalledWith(expectedLasso, "replace");
+
+    onSelect.mockClear();
+    await act(async () => {
+      view.root.render(createElement(Wheel, {
+        records,
+        maxChroma,
+        tool: "brush",
+        multiSwatch: false,
+        selectedIds: [],
+        onSelect,
+      }));
+    });
+    const brushStart = toWheel(156, 96);
+    await act(async () => {
+      canvas.dispatchEvent(new PointerEvent("pointerdown", { clientX: 156, clientY: 96, bubbles: true }));
+      canvas.dispatchEvent(new PointerEvent("pointermove", { clientX: 168, clientY: 108, bubbles: true }));
+      canvas.dispatchEvent(new PointerEvent("pointerup", { clientX: 174, clientY: 114, bubbles: true }));
+    });
+    const expectedBrush = records
+      .filter((record) => selectionMatches(
+        record,
+        { type: "brush", lab: { L: 0.5, a: brushStart.x * 0.2, b: brushStart.y * 0.2 }, radius: 0.12 },
+        maxChroma,
+      ))
+      .map((record) => record.id);
+    expect(expectedBrush.length).toBeGreaterThan(0);
+    expect(onSelect).toHaveBeenLastCalledWith(expectedBrush, "replace");
+    await view.unmount();
+  });
+
+  it("tolerates sparse records missing dominant_oklch or palette", async () => {
+    const onSelect = vi.fn();
+    const sparse = [
+      { id: "missing-color", needs_tags: false },
+      { id: "no-palette", dominant_hex: "#cc4422", dominant_oklch: { L: 0.5, C: 0.08, h: 0 } },
+    ] as unknown as LibrarySummary[];
+    const view = await mount(createElement(Wheel, {
+      records: sparse,
+      maxChroma: 0.2,
+      tool: "lasso",
+      multiSwatch: true,
+      colorBlind: true,
+      selectedIds: [],
+      onSelect,
+    }));
+    const canvas = view.host.querySelector("canvas");
+    if (!(canvas instanceof HTMLCanvasElement)) throw new Error("missing canvas");
+    canvas.getBoundingClientRect = () => new DOMRect(0, 0, 240, 240);
+    await act(async () => {
+      canvas.dispatchEvent(new PointerEvent("pointermove", { clientX: 120, clientY: 80, bubbles: true }));
+      canvas.dispatchEvent(new PointerEvent("pointerdown", { clientX: 10, clientY: 10, bubbles: true }));
+      canvas.dispatchEvent(new PointerEvent("pointermove", { clientX: 230, clientY: 10, bubbles: true }));
+      canvas.dispatchEvent(new PointerEvent("pointermove", { clientX: 230, clientY: 230, bubbles: true }));
+      canvas.dispatchEvent(new PointerEvent("pointerup", { clientX: 10, clientY: 230, bubbles: true }));
+    });
+    expect(onSelect).toHaveBeenLastCalledWith(["no-palette"], "replace");
+    await key(canvas, " ");
+    expect(onSelect).toHaveBeenLastCalledWith(["no-palette"], "replace");
+    await view.unmount();
   });
 });

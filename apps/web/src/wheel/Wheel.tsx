@@ -1,44 +1,51 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  dotsFor,
-  hueInWedge,
   hueSymbol,
   oklchToOklab,
-  oklabToRgb,
-  pointInPolygon,
   reduceWheelKey,
-  rgbToHex,
-  selectionMatches,
   wheelPoint,
-  type LibraryRecord,
+  type LibrarySummary,
+  type Point,
   type WheelCursor,
 } from "@gallery/core";
-import type { PublicRecord } from "../api/client";
-import { classifyGesture, type WheelTool } from "./gesture";
+import {
+  buildWheelIndex,
+  countGestureMatches,
+  hexAtCanvasPoint,
+  selectBrushIds,
+  selectGestureIds,
+} from "./geometry";
+import { classifyGesture, type Gesture, type WheelTool } from "./gesture";
 
-type Point = { x: number; y: number };
+const DOT = 3;
+const GUIDE = "rgba(20, 20, 19, 0.35)";
 
-const RING_CHROMA = 0.14;
-const RING_LIGHTNESS = 0.7;
-
-function canvasHueRadians(hue: number): number {
-  return ((hue - 90) * Math.PI) / 180;
-}
-
-function drawHueRing(context: CanvasRenderingContext2D, center: number, radius: number, lineWidth: number): void {
-  context.lineWidth = lineWidth;
+function drawGuides(context: CanvasRenderingContext2D, center: number, radius: number): void {
+  context.strokeStyle = GUIDE;
+  context.lineWidth = 1;
   context.lineCap = "butt";
-  for (let hue = 0; hue < 360; hue += 1) {
-    const rgb = oklabToRgb(oklchToOklab({ L: RING_LIGHTNESS, C: RING_CHROMA, h: hue }));
-    context.strokeStyle = rgbToHex(rgb.r, rgb.g, rgb.b);
+  context.setLineDash([]);
+  for (const fraction of [1, 2 / 3, 1 / 3]) {
     context.beginPath();
-    context.arc(center, center, radius, canvasHueRadians(hue), canvasHueRadians(hue + 1));
+    context.arc(center, center, radius * fraction, 0, Math.PI * 2);
     context.stroke();
   }
+  context.beginPath();
+  context.moveTo(center - radius, center);
+  context.lineTo(center + radius, center);
+  context.moveTo(center, center - radius);
+  context.lineTo(center, center + radius);
+  context.stroke();
+}
+
+function devicePixelRatioValue(): number {
+  if (typeof window === "undefined") return 1;
+  const ratio = window.devicePixelRatio;
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
 }
 
 export function Wheel(props: {
-  records: PublicRecord[];
+  records: LibrarySummary[];
   maxChroma: number;
   tool: WheelTool;
   multiSwatch: boolean;
@@ -48,62 +55,133 @@ export function Wheel(props: {
   onSelect: (ids: string[], mode: "replace" | "add" | "subtract") => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const baseRef = useRef<HTMLCanvasElement | null>(null);
   const drag = useRef<{ start: Point; points: Point[]; radius: number } | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const dirtyRef = useRef(false);
   const [cursor, setCursor] = useState<WheelCursor>({ hue: 0, radius: 0.4, brush: 0.08 });
   const [hoverHex, setHoverHex] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ gesture: Gesture; count: number; points: Point[] } | null>(null);
+
   const size = props.large ? 520 : 240;
-  const records = props.records.map((record) => ({ ...record, embedding: null })) as LibraryRecord[];
+  const dpr = devicePixelRatioValue();
+  const pixelSize = Math.round(size * dpr);
   const ringRadius = size * 0.42;
+  const chroma = Math.max(props.maxChroma, 0.001);
+  const hasSelection = props.selectedIds.length > 0;
+  const colorBlind = props.colorBlind === true;
+
+  const index = useMemo(
+    () => buildWheelIndex(props.records, props.multiSwatch, chroma, size),
+    [props.records, props.multiSwatch, chroma, size],
+  );
+
+  const visibleDotIndices = useMemo(() => {
+    if (!hasSelection) return null;
+    const selected = new Set(props.selectedIds);
+    const { dotCount, dotRecordIndex, recordIds } = index;
+    let count = 0;
+    for (let d = 0; d < dotCount; d += 1) {
+      if (selected.has(recordIds[dotRecordIndex[d]])) count += 1;
+    }
+    const indices = new Int32Array(count);
+    let cursorIdx = 0;
+    for (let d = 0; d < dotCount; d += 1) {
+      if (selected.has(recordIds[dotRecordIndex[d]])) {
+        indices[cursorIdx] = d;
+        cursorIdx += 1;
+      }
+    }
+    return indices;
+  }, [index, hasSelection, props.selectedIds]);
+
+  const latestRef = useRef({ index, tool: props.tool });
+  latestRef.current = { index, tool: props.tool };
+
+  function cancelPendingFrame() {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    dirtyRef.current = false;
+  }
+
+  useEffect(() => cancelPendingFrame, []);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const context = canvas?.getContext("2d");
-    if (!canvas || !context) return;
-    const selected = new Set(props.selectedIds);
-    const center = size / 2;
+    if (!hasSelection) setDraft(null);
+  }, [hasSelection]);
+
+  useEffect(() => {
+    const base = baseRef.current ?? document.createElement("canvas");
+    if (base.width !== pixelSize || base.height !== pixelSize) {
+      base.width = pixelSize;
+      base.height = pixelSize;
+    }
+    const context = base.getContext("2d");
+    if (!context) return;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, size, size);
-    drawHueRing(context, center, ringRadius, 2);
-    const dots = records.flatMap((record) => dotsFor(record, props.multiSwatch ? "all" : "dominant", 0.08));
-    for (const dot of dots) {
-      const point = wheelPoint(dot.oklch, Math.max(props.maxChroma, 0.001));
-      const x = center + point.x * ringRadius;
-      const y = center - point.y * ringRadius;
-      context.fillStyle = dot.hex;
+    drawGuides(context, size / 2, ringRadius);
+
+    const { dotCount, dotX, dotY, dotHex, dotHue } = index;
+    const count = visibleDotIndices ? visibleDotIndices.length : dotCount;
+    for (let k = 0; k < count; k += 1) {
+      const d = visibleDotIndices ? visibleDotIndices[k] : k;
+      context.fillStyle = dotHex[d];
       context.beginPath();
-      context.arc(x, y, 5, 0, Math.PI * 2);
+      context.arc(dotX[d], dotY[d], DOT, 0, Math.PI * 2);
       context.fill();
-      if (selected.has(dot.imageId)) {
+    }
+
+    if (hasSelection) {
+      context.strokeStyle = "#141413";
+      context.lineWidth = 1;
+      for (let k = 0; k < count; k += 1) {
+        const d = visibleDotIndices ? visibleDotIndices[k] : k;
         context.beginPath();
-        context.arc(x, y, 8, 0, Math.PI * 2);
-        context.strokeStyle = "#fcfcfb";
-        context.lineWidth = 3;
-        context.stroke();
-        context.beginPath();
-        context.arc(x, y, 8, 0, Math.PI * 2);
-        context.strokeStyle = "#141413";
-        context.lineWidth = 1;
+        context.arc(dotX[d], dotY[d], DOT + 2, 0, Math.PI * 2);
         context.stroke();
       }
-      if (!props.colorBlind) continue;
-      const symbol = hueSymbol(dot.oklch.h);
+    }
+
+    if (colorBlind) {
       context.font = "12px sans-serif";
       context.textAlign = "center";
       context.textBaseline = "middle";
       context.lineWidth = 3;
       context.strokeStyle = "#fcfcfb";
-      context.strokeText(symbol, x, y);
       context.fillStyle = "#141413";
-      context.fillText(symbol, x, y);
+      for (let k = 0; k < count; k += 1) {
+        const d = visibleDotIndices ? visibleDotIndices[k] : k;
+        const symbol = hueSymbol(dotHue[d]);
+        const x = dotX[d];
+        const y = dotY[d];
+        context.strokeText(symbol, x, y);
+        context.fillText(symbol, x, y);
+      }
     }
-    const placed = wheelPoint(cursorColor(cursor, props.maxChroma), Math.max(props.maxChroma, 0.001));
-    const cursorX = center + placed.x * ringRadius;
-    const cursorY = center - placed.y * ringRadius;
+
+    baseRef.current = base;
+  }, [index, visibleDotIndices, hasSelection, colorBlind, size, pixelSize, dpr, ringRadius]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    const base = baseRef.current;
+    if (!canvas || !context || !base) return;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.clearRect(0, 0, size, size);
+    context.drawImage(base, 0, 0, size, size);
+    if (draft) drawGesture(context, draft.gesture, draft.points, size, ringRadius);
+    const placed = wheelPoint(cursorColor(cursor, props.maxChroma), chroma);
+    const center = size / 2;
     context.beginPath();
-    context.arc(cursorX, cursorY, Math.max(4, cursor.brush * ringRadius), 0, Math.PI * 2);
+    context.arc(center + placed.x * ringRadius, center - placed.y * ringRadius, Math.max(4, cursor.brush * ringRadius), 0, Math.PI * 2);
     context.strokeStyle = "#141413";
     context.lineWidth = 1.5;
     context.stroke();
-  }, [records, props.maxChroma, props.multiSwatch, props.selectedIds, props.colorBlind, cursor, size, ringRadius]);
+  }, [index, visibleDotIndices, hasSelection, colorBlind, props.maxChroma, chroma, cursor, draft, size, dpr, ringRadius]);
 
   function onKeyDown(event: ReactKeyboardEvent<HTMLCanvasElement>) {
     if (event.key === " ") {
@@ -123,9 +201,7 @@ export function Wheel(props: {
     switch (gesture) {
       case "brush": {
         const lab = oklchToOklab(cursorColor(cursor, props.maxChroma));
-        const ids = records
-          .filter((record) => selectionMatches(record, { type: "brush", lab, radius: cursor.brush }, props.maxChroma))
-          .map((record) => record.id);
+        const ids = selectBrushIds(index, lab, cursor.brush);
         props.onSelect(ids, mode);
         return;
       }
@@ -145,118 +221,202 @@ export function Wheel(props: {
   function hexAt(event: ReactPointerEvent<HTMLCanvasElement>): string | null {
     const canvas = event.currentTarget;
     const rect = canvas.getBoundingClientRect();
-    const width = rect.width || canvas.width;
-    const height = rect.height || canvas.height;
+    const width = rect.width || size;
+    const height = rect.height || size;
     const left = rect.width ? rect.left : 0;
     const top = rect.height ? rect.top : 0;
-    const px = ((event.clientX - left) / width) * canvas.width;
-    const py = ((event.clientY - top) / height) * canvas.height;
-    const chroma = Math.max(props.maxChroma, 0.001);
-    const center = size / 2;
-    const dots = records.flatMap((record) => dotsFor(record, props.multiSwatch ? "all" : "dominant", 0.08));
-    let best: { hex: string; distance: number } | null = null;
-    for (const dot of dots) {
-      const point = wheelPoint(dot.oklch, chroma);
-      const x = center + point.x * ringRadius;
-      const y = center - point.y * ringRadius;
-      const distance = Math.hypot(px - x, py - y);
-      if (distance > 12 || (best && distance >= best.distance)) continue;
-      best = { hex: dot.hex, distance };
-    }
-    return best?.hex ?? null;
+    const px = ((event.clientX - left) / width) * size;
+    const py = ((event.clientY - top) / height) * size;
+    return hexAtCanvasPoint(index, px, py);
   }
 
   function localPoint(event: ReactPointerEvent<HTMLCanvasElement>): Point {
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+    const width = rect.width || size;
+    const height = rect.height || size;
+    const x = ((event.clientX - rect.left) / width) * 2 - 1;
+    const y = -(((event.clientY - rect.top) / height) * 2 - 1);
     return { x, y };
   }
 
+  function flushDraft() {
+    const current = drag.current;
+    if (!current) return;
+    const end = current.points[current.points.length - 1] ?? current.start;
+    const moved = Math.hypot(end.x - current.start.x, end.y - current.start.y);
+    const { index: activeIndex, tool } = latestRef.current;
+    const gesture = classifyGesture(tool, current.radius, moved);
+    const count = countGestureMatches(activeIndex, gesture, current.start, current.points);
+    setDraft({ gesture, count, points: current.points.slice() });
+  }
+
+  function scheduleFrame() {
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      if (!dirtyRef.current || !drag.current) return;
+      dirtyRef.current = false;
+      flushDraft();
+      scheduleFrame();
+    });
+  }
+
   function finish(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const hadDirty = dirtyRef.current;
+    cancelPendingFrame();
     const current = drag.current;
     drag.current = null;
     if (!current) return;
     const end = localPoint(event);
+    const points = [...current.points, end];
     const moved = Math.hypot(end.x - current.start.x, end.y - current.start.y);
     const gesture = classifyGesture(props.tool, current.radius, moved);
     const mode = event.shiftKey ? "add" : event.altKey ? "subtract" : "replace";
-    const ids = records
-      .filter((record) => matches(record, gesture, current.start, [...current.points, end]))
-      .map((record) => record.id);
+    const ids = selectGestureIds(index, gesture, current.start, points);
+    if (hadDirty) setDraft({ gesture, count: ids.length, points });
     props.onSelect(ids, mode);
-  }
-
-  function matches(record: LibraryRecord, gesture: ReturnType<typeof classifyGesture>, start: Point, points: Point[]): boolean {
-    const chroma = Math.max(props.maxChroma, 0.001);
-    switch (gesture) {
-      case "click":
-      case "eyedropper": {
-        const dot = wheelPoint(record.dominant_oklch, chroma);
-        return Math.hypot(dot.x - start.x, dot.y - start.y) <= 0.08;
-      }
-      case "wedge": {
-        const end = points[points.length - 1] ?? start;
-        return hueInWedge(record.dominant_oklch.h, angle(start), angle(end));
-      }
-      case "lasso":
-        return pointInPolygon(wheelPoint(record.dominant_oklch, chroma), points);
-      case "ring": {
-        const end = points.at(-1) ?? start;
-        const inner = Math.min(Math.hypot(start.x, start.y), Math.hypot(end.x, end.y));
-        const outer = Math.max(Math.hypot(start.x, start.y), Math.hypot(end.x, end.y));
-        return selectionMatches(record, { type: "ring", inner, outer }, chroma);
-      }
-      case "brush":
-        return selectionMatches(record, { type: "brush", lab: labFrom(start), radius: 0.12 }, props.maxChroma);
-      default: {
-        const unreachable: never = gesture;
-        return unreachable;
-      }
-    }
   }
 
   return (
     <div className="wheel-minimap">
-      <span className="wheel-hue">HUE</span>
-      <span className="wheel-saturation">SATURATION: less → more</span>
       <canvas
         ref={canvasRef}
-        width={size}
-        height={size}
+        width={pixelSize}
+        height={pixelSize}
+        style={{ width: size, height: size }}
         aria-label="Color wheel"
         tabIndex={0}
         onKeyDown={onKeyDown}
         onPointerDown={(event) => {
+          cancelPendingFrame();
           const start = localPoint(event);
           drag.current = { start, points: [start], radius: Math.hypot(start.x, start.y) };
         }}
         onPointerMove={(event) => {
-          if (props.colorBlind) {
+          if (colorBlind) {
             const next = hexAt(event);
             setHoverHex((current) => (current === next ? current : next));
           }
           if (!drag.current) return;
           drag.current.points.push(localPoint(event));
+          if (rafRef.current === null) {
+            flushDraft();
+            scheduleFrame();
+          } else {
+            dirtyRef.current = true;
+          }
         }}
         onPointerLeave={() => setHoverHex(null)}
+        onPointerCancel={() => {
+          cancelPendingFrame();
+          drag.current = null;
+        }}
         onPointerUp={finish}
       />
-      {props.colorBlind && hoverHex ? (
+      <output className="wheel-selection" aria-live="polite" aria-label="Wheel selection">
+        {draft ? `${gestureLabel(draft.gesture)} · ${draft.count} photos` : `${props.selectedIds.length} selected`}
+      </output>
+      {colorBlind && hoverHex ? (
         <output className="wheel-hex" aria-label="Hovered swatch">{hoverHex}</output>
       ) : null}
     </div>
   );
 }
 
+function drawGesture(context: CanvasRenderingContext2D, gesture: Gesture, points: Point[], size: number, ring: number): void {
+  const start = points[0];
+  const end = points.at(-1) ?? start;
+  if (!start || !end) return;
+  const center = size / 2;
+  context.strokeStyle = "#141413";
+  context.lineWidth = 1.5;
+  context.setLineDash([5, 4]);
+  switch (gesture) {
+    case "lasso": {
+      context.beginPath();
+      points.forEach((point, index) => {
+        const placed = toCanvas(point, size);
+        if (index === 0) context.moveTo(placed.x, placed.y);
+        else context.lineTo(placed.x, placed.y);
+      });
+      context.closePath();
+      context.stroke();
+      break;
+    }
+    case "wedge": {
+      const from = ray(start, center, ring);
+      const to = ray(end, center, ring);
+      context.beginPath();
+      context.moveTo(center, center);
+      context.lineTo(from.x, from.y);
+      context.moveTo(center, center);
+      context.lineTo(to.x, to.y);
+      context.stroke();
+      context.beginPath();
+      context.arc(center, center, ring, Math.atan2(from.y - center, from.x - center), Math.atan2(to.y - center, to.x - center));
+      context.stroke();
+      break;
+    }
+    case "ring": {
+      const inner = Math.min(Math.hypot(start.x, start.y), Math.hypot(end.x, end.y));
+      const outer = Math.max(Math.hypot(start.x, start.y), Math.hypot(end.x, end.y));
+      context.beginPath();
+      context.arc(center, center, inner * center, 0, Math.PI * 2);
+      context.stroke();
+      context.beginPath();
+      context.arc(center, center, outer * center, 0, Math.PI * 2);
+      context.stroke();
+      break;
+    }
+    case "brush":
+    case "click":
+    case "eyedropper": {
+      const placed = toCanvas(start, size);
+      context.beginPath();
+      context.arc(placed.x, placed.y, (gesture === "brush" ? 0.12 : 0.08) * center, 0, Math.PI * 2);
+      context.stroke();
+      break;
+    }
+    default: {
+      const unreachable: never = gesture;
+      context.setLineDash([]);
+      return unreachable;
+    }
+  }
+  context.setLineDash([]);
+}
+
+function toCanvas(point: Point, size: number): Point {
+  return { x: ((point.x + 1) / 2) * size, y: ((1 - point.y) / 2) * size };
+}
+
+function ray(point: Point, center: number, ring: number): Point {
+  const dx = point.x * center;
+  const dy = -point.y * center;
+  const mag = Math.hypot(dx, dy) || 1;
+  return { x: center + (dx / mag) * ring, y: center + (dy / mag) * ring };
+}
+
+function gestureLabel(gesture: Gesture): string {
+  switch (gesture) {
+    case "wedge":
+      return "Wedge";
+    case "lasso":
+      return "Lasso";
+    case "ring":
+      return "Ring";
+    case "brush":
+      return "Brush";
+    case "click":
+      return "Click";
+    case "eyedropper":
+      return "Eyedropper";
+    default: {
+      const unreachable: never = gesture;
+      return unreachable;
+    }
+  }
+}
+
 function cursorColor(cursor: WheelCursor, maxChroma: number): { L: number; C: number; h: number } {
   return { L: 0.5, C: cursor.radius * Math.max(maxChroma, 0.001), h: cursor.hue };
-}
-
-function angle(point: Point): number {
-  return (Math.atan2(point.x, point.y) * 180) / Math.PI;
-}
-
-function labFrom(point: Point): { L: number; a: number; b: number } {
-  return { L: 0.5, a: point.x * 0.2, b: point.y * 0.2 };
 }

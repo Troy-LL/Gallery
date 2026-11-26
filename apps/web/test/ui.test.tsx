@@ -25,6 +25,35 @@ describe("ui helpers", () => {
     expect(visibleRange(0, 200, 100, 40, 4)).toEqual({ start: 0, end: 16 });
   });
 
+  it("offers a retry when the library query fails", async () => {
+    let queries = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo) => {
+      const url = String(input);
+      if (url === "/api/query") {
+        queries += 1;
+        if (queries === 1) return new Response("database disk image is malformed", { status: 500 });
+        return Response.json({ total: 1, matched: 1, maxChroma: 0.2, records: [{ id: "photo-1", needs_tags: false }] });
+      }
+      if (url === "/api/platforms") return Response.json({ platforms: [] });
+      if (url === "/api/queue") return Response.json({ paused: false });
+      if (url === "/api/palettes") return Response.json({ palettes: [] });
+      return new Response("missing", { status: 404 });
+    }));
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(createElement(App));
+    });
+    expect(host.textContent).toContain("database disk image is malformed");
+    const retry = [...host.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Retry");
+    expect(retry).toBeTruthy();
+    await act(async () => {
+      retry?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(host.textContent).not.toContain("database disk image is malformed");
+    expect(host.querySelector("[aria-label='Color wheel']")).toBeTruthy();
+  });
+
   it("renders one workspace shell with empty library", async () => {
     mockFetchEmpty();
     const host = document.createElement("div");

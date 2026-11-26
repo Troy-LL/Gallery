@@ -2,6 +2,7 @@ export type GridHeaderProps = {
   matched: number;
   total: number;
   selectedCount: number;
+  trayCount: number;
   needsTags: number;
   onSelectAll: () => void;
   tile: number;
@@ -21,7 +22,7 @@ export function GridHeader(props: GridHeaderProps) {
   return (
     <header className="grid-header">
       <p className="grid-header-summary">
-        {props.matched} photos · {props.selectedCount} selected
+        {props.matched} of {props.total} photos · {props.selectedCount} selected · {props.trayCount} in the tray
       </p>
       <div className="grid-header-actions">
         <button

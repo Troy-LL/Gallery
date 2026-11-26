@@ -18,29 +18,12 @@
   gap: 8px;
 }
 
-.wheel-hue,
-.wheel-saturation {
-  position: absolute;
-  z-index: 1;
-  pointer-events: none;
+.wheel-selection {
+  display: block;
+  margin-top: 4px;
   font-family: var(--font-mono);
-  font-size: 0.625rem;
-  letter-spacing: 0.08em;
+  font-size: 0.75rem;
   color: var(--ink-2);
-}
-
-.wheel-hue {
-  top: 2px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.wheel-saturation {
-  top: 50%;
-  left: 54%;
-  max-width: 42%;
-  letter-spacing: 0;
-  transform: translateY(-50%);
 }
 
 .neutrals {

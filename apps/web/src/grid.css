@@ -48,7 +48,7 @@
 }
 
 .grid {
-  max-height: 640px;
+  max-height: max(320px, calc(100vh - 220px));
   overflow: auto;
 }
 
@@ -76,6 +76,7 @@
   border-radius: var(--radius-chrome);
   background: transparent;
   cursor: pointer;
+  contain: layout paint style;
 }
 
 .tile img,
