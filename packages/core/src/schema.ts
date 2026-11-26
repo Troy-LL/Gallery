@@ -289,6 +289,37 @@ export type Temperature = (typeof TEMPERATURES)[number];
 export type SharpnessLevel = (typeof SHARPNESS)[number];
 export type Point = z.infer<typeof pointSchema>;
 
+export const SUMMARY_FIELDS = [
+  "id",
+  "width",
+  "height",
+  "orientation",
+  "aspect_ratio",
+  "taken_at",
+  "dominant_hex",
+  "dominant_h",
+  "dominant_s",
+  "dominant_l",
+  "dominant_oklch",
+  "palette",
+  "temperature",
+  "is_monochrome",
+  "sharpness",
+  "resolution_tier",
+  "subject_box",
+  "needs_tags",
+  "rating",
+  "status",
+  "used_count",
+] as const satisfies readonly (keyof LibraryRecord)[];
+
+/** Grid, wheel, tray, and preview fields; the lightbox fetches the full record by id. */
+export type LibrarySummary = Pick<LibraryRecord, (typeof SUMMARY_FIELDS)[number]>;
+
+export function toLibrarySummary(record: LibraryRecord): LibrarySummary {
+  return Object.fromEntries(SUMMARY_FIELDS.map((key) => [key, record[key]])) as LibrarySummary;
+}
+
 export function assertPinnedModel(model: string): string {
   return modelVersionSchema.parse(model);
 }

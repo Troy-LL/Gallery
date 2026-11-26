@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS images (
   dominant_l REAL NOT NULL DEFAULT 0,
   peak_c REAL NOT NULL DEFAULT 0,
   is_monochrome INTEGER NOT NULL DEFAULT 0,
+  file_path TEXT,
+  thumbnail_path TEXT,
+  sharpness TEXT,
+  avg_luminance REAL,
+  embedding TEXT,
   body TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS images_orientation_h ON images (orientation, dominant_h);
@@ -72,4 +77,14 @@ export const IMAGE_COLUMN_ALTERS = [
   "ALTER TABLE images ADD COLUMN dominant_l REAL NOT NULL DEFAULT 0",
   "ALTER TABLE images ADD COLUMN peak_c REAL NOT NULL DEFAULT 0",
   "ALTER TABLE images ADD COLUMN is_monochrome INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE images ADD COLUMN file_path TEXT",
+  "ALTER TABLE images ADD COLUMN thumbnail_path TEXT",
+  "ALTER TABLE images ADD COLUMN sharpness TEXT",
+  "ALTER TABLE images ADD COLUMN avg_luminance REAL",
+  "ALTER TABLE images ADD COLUMN embedding TEXT",
 ];
+
+export const IMAGE_INDEXES = `
+CREATE INDEX IF NOT EXISTS images_taken_at ON images (taken_at);
+CREATE INDEX IF NOT EXISTS images_monochrome_l ON images (is_monochrome, dominant_l);
+`;

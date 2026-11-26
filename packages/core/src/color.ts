@@ -44,6 +44,13 @@ export function oklabDistance(left: Lab, right: Lab): number {
   return Math.hypot(left.L - right.L, left.a - right.a, left.b - right.b);
 }
 
+export function oklabDistanceSquared(left: Lab, right: Lab): number {
+  const dL = left.L - right.L;
+  const da = left.a - right.a;
+  const db = left.b - right.b;
+  return dL * dL + da * da + db * db;
+}
+
 export function rgbToHex(r: number, g: number, b: number): string {
   const channel = (value: number) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0");
   return `#${channel(r)}${channel(g)}${channel(b)}`;
@@ -92,46 +99,84 @@ export function swatchFromRgb(rgb: Rgb, weight: number): Swatch {
 }
 
 export function extractPalette(pixels: Rgb[], requested = 5): Swatch[] {
-  if (pixels.length === 0) throw new Error("no pixels");
-  const points = pixels.map((pixel) => ({ ...pixel, ...rgbToOklab(pixel.r, pixel.g, pixel.b) }));
-  const k = Math.max(1, Math.min(requested, points.length));
-  const centers = Array.from({ length: k }, (_, index) => {
-    const point = points[Math.floor((index * points.length) / k)] ?? points[0];
-    return { L: point.L, a: point.a, b: point.b };
-  });
-  let groups = centers.map(() => [] as typeof points);
+  const n = pixels.length;
+  if (n === 0) throw new Error("no pixels");
+  const ptL = new Float64Array(n);
+  const ptA = new Float64Array(n);
+  const ptB = new Float64Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const pixel = pixels[i];
+    const lr = srgbToLinear(pixel.r);
+    const lg = srgbToLinear(pixel.g);
+    const lb = srgbToLinear(pixel.b);
+    const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+    const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+    const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+    ptL[i] = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+    ptA[i] = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+    ptB[i] = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  }
+  const k = Math.max(1, Math.min(Math.floor(requested), n));
+  const cL = new Float64Array(k);
+  const cA = new Float64Array(k);
+  const cB = new Float64Array(k);
+  for (let index = 0; index < k; index += 1) {
+    const pick = Math.floor((index * n) / k);
+    cL[index] = ptL[pick];
+    cA[index] = ptA[pick];
+    cB[index] = ptB[pick];
+  }
+  const assignments = new Int32Array(n);
+  const sumL = new Float64Array(k);
+  const sumA = new Float64Array(k);
+  const sumB = new Float64Array(k);
+  const counts = new Int32Array(k);
   for (let iteration = 0; iteration < 8; iteration += 1) {
-    groups = centers.map(() => []);
-    for (const point of points) {
+    sumL.fill(0);
+    sumA.fill(0);
+    sumB.fill(0);
+    counts.fill(0);
+    for (let p = 0; p < n; p += 1) {
+      const pL = ptL[p];
+      const pA = ptA[p];
+      const pB = ptB[p];
       let best = 0;
-      let bestDistance = Number.POSITIVE_INFINITY;
-      for (let index = 0; index < centers.length; index += 1) {
-        const distance = oklabDistance(point, centers[index] ?? point);
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          best = index;
+      let bestDistSq = Number.POSITIVE_INFINITY;
+      for (let c = 0; c < k; c += 1) {
+        const dL = pL - cL[c];
+        const da = pA - cA[c];
+        const db = pB - cB[c];
+        const distSq = dL * dL + da * da + db * db;
+        if (distSq < bestDistSq) {
+          bestDistSq = distSq;
+          best = c;
         }
       }
-      groups[best]?.push(point);
+      assignments[p] = best;
+      sumL[best] += pL;
+      sumA[best] += pA;
+      sumB[best] += pB;
+      counts[best] += 1;
     }
-    for (let index = 0; index < centers.length; index += 1) {
-      const group = groups[index] ?? [];
-      if (group.length === 0) continue;
-      const next = group.reduce(
-        (sum, point) => ({ L: sum.L + point.L, a: sum.a + point.a, b: sum.b + point.b }),
-        { L: 0, a: 0, b: 0 },
-      );
-      centers[index] = { L: next.L / group.length, a: next.a / group.length, b: next.b / group.length };
+    for (let c = 0; c < k; c += 1) {
+      const count = counts[c];
+      if (count === 0) continue;
+      cL[c] = sumL[c] / count;
+      cA[c] = sumA[c] / count;
+      cB[c] = sumB[c] / count;
     }
   }
-  const ranked = centers
-    .map((center, index) => ({ center, count: (groups[index] ?? []).length }))
-    .filter((entry) => entry.count > 0)
-    .sort((left, right) => right.count - left.count)
-    .slice(0, 5);
-  const total = ranked.reduce((sum, entry) => sum + entry.count, 0);
-  return ranked.map((entry) => {
-    const { r, g, b } = oklabToRgb(entry.center);
+  const ranked: { index: number; count: number }[] = [];
+  for (let c = 0; c < k; c += 1) {
+    const count = counts[c];
+    if (count > 0) ranked.push({ index: c, count });
+  }
+  ranked.sort((left, right) => right.count - left.count);
+  const top = ranked.slice(0, 5);
+  let total = 0;
+  for (const entry of top) total += entry.count;
+  return top.map((entry) => {
+    const { r, g, b } = oklabToRgb({ L: cL[entry.index], a: cA[entry.index], b: cB[entry.index] });
     return swatchFromRgb({ r, g, b }, entry.count / total);
   });
 }

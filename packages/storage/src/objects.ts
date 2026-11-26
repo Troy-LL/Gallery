@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { createHash, createHmac } from "node:crypto";
 
@@ -39,7 +40,8 @@ export function createFsStore(root: string): ObjectStore {
     async get(key) {
       const path = contained(root, key);
       try {
-        return new Uint8Array(readFileSync(path));
+        const bytes = await readFile(path);
+        return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       } catch {
         return null;
       }
