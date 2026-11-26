@@ -4,7 +4,7 @@
   "endpoint_url": "https://api.typesafe.ai",
   "monthly_cap_usd": 5,
   "price_per_million_input_tokens": 0.042,
-  "mean_input_tokens": 1500,
+  "mean_input_tokens": 6615,
   "subject_visible_threshold": 0.5,
   "working_copy_px": 2048,
   "storage_cap_bytes": 10000000000,

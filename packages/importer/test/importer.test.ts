@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { zipSync, strToU8 } from "fflate";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { parseSettings, syntheticRecord, vocabularyFileSchema } from "@gallery/core";
+import { hammingHex, parseSettings, rgbToOklab, syntheticRecord, vocabularyFileSchema } from "@gallery/core";
 import { createStore, openSqlite } from "@gallery/storage";
+import { averageHash, boxAverage8x8, summarizePixels, type Pixel } from "../src/pipeline/metrics.js";
 import {
   analyzeImage,
   assertSmokeFloor,
@@ -15,6 +16,7 @@ import {
   finishRecord,
   googleAuthUrl,
   isBaselineJpeg,
+  iterateTakeoutZip,
   prepareStill,
   readTakeout,
   runPickerDownload,
@@ -81,6 +83,82 @@ describe("image prep", () => {
     expect(stripped.includes(Buffer.from("NOTEME"))).toBe(false);
     expect(isBaselineJpeg(stripped)).toBe(true);
     expect(isBaselineJpeg(kept)).toBe(true);
+  });
+
+  it("matches the legacy pixel summary on synthetic images", () => {
+    const side = 64;
+    const scenes: ((x: number, y: number) => Pixel)[] = [
+      (x, y) => ({ r: (x * 37 + y * 11) % 256, g: (x * y) % 256, b: (x * 5 + y * 91) % 256 }),
+      (x, y) => ({ r: x * 4, g: y * 4, b: 128 }),
+      (x, y) => (Math.abs(x - 32) < 10 && Math.abs(y - 30) < 12 ? { r: 200, g: 40, b: 30 } : { r: 250, g: 250, b: 248 }),
+      () => ({ r: 90, g: 90, b: 90 }),
+    ];
+    for (const scene of scenes) {
+      const pixels: Pixel[] = [];
+      const gray = new Uint8Array(side * side);
+      for (let y = 0; y < side; y += 1) {
+        for (let x = 0; x < side; x += 1) {
+          const pixel = scene(x, y);
+          pixels.push(pixel);
+          gray[y * side + x] = Math.round(0.2126 * pixel.r + 0.7152 * pixel.g + 0.0722 * pixel.b);
+        }
+      }
+      const current = summarizePixels(pixels, side, side, gray);
+      const legacy = legacySummary(pixels, side, side, gray);
+      for (const key of ["avgLuminance", "contrast", "saturation", "negativeSpace"] as const) {
+        expect(Math.abs(current[key] - legacy[key])).toBeLessThanOrEqual(1e-9);
+      }
+      expect(current.sharpness).toBe(legacy.sharpness);
+      expect(current.composition).toEqual(legacy.composition);
+      expect(current.temperature).toBe(legacy.temperature);
+      expect(current.isMonochrome).toBe(legacy.isMonochrome);
+    }
+  });
+
+  it("keeps the phash stable and close enough to dedupe re-encodes", async () => {
+    const width = 900;
+    const height = 1200;
+    const raw = Buffer.alloc(width * height * 3);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const index = (y * width + x) * 3;
+        const inSubject = Math.hypot(x - 420, y - 640) < 260;
+        raw[index] = inSubject ? 210 : (x * 255) / width;
+        raw[index + 1] = inSubject ? 60 : (y * 255) / height;
+        raw[index + 2] = inSubject ? 40 : 120;
+      }
+    }
+    const crisp = await sharp(raw, { raw: { width, height, channels: 3 } }).jpeg({ quality: 95 }).toBuffer();
+    const soft = await sharp(raw, { raw: { width, height, channels: 3 } }).jpeg({ quality: 40 }).toBuffer();
+    const source = { sourceType: "google_photos" as const, sourceRef: null, takenAt: "2024-05-01T10:00:00.000Z" };
+    const first = await prepareStill(crisp, source);
+    const again = await prepareStill(crisp, source);
+    expect(again.partial.phash).toBe(first.partial.phash);
+    const resized = await sharp(first.working).resize(8, 8, { fit: "fill" }).greyscale().raw().toBuffer();
+    expect(hammingHex(first.partial.phash, averageHash(resized))).toBeLessThanOrEqual(6);
+    const gray = Uint8Array.from({ length: 64 * 64 }, (_, index) => (index % 64 < 32 ? 10 : 200));
+    expect(averageHash(boxAverage8x8(gray, 64, 64))).toBe("0f0f0f0f0f0f0f0f");
+    const store = createStore(openSqlite(":memory:"));
+    const lowRes = await prepareStill(soft, source);
+    await commitRecord(store, finishRecord(lowRes.partial, "soft", "working/soft.jpg", "thumbs/soft.jpg"));
+    const twin = await commitRecord(store, finishRecord(first.partial, "crisp", "working/crisp.jpg", "thumbs/crisp.jpg"));
+    expect(["upgraded", "duplicate"]).toContain(twin.action);
+    expect(twin.record.id).toBe("soft");
+  });
+
+  it("prepares greyscale, alpha, and 16-bit inputs as three-channel baseline copies", async () => {
+    const grey = await sharp({ create: { width: 300, height: 200, channels: 3, background: { r: 120, g: 120, b: 120 } } }).greyscale().png().toBuffer();
+    const alpha = await sharp({ create: { width: 300, height: 200, channels: 4, background: { r: 20, g: 200, b: 60, alpha: 0.5 } } }).png().toBuffer();
+    const deep = await sharp({ create: { width: 300, height: 200, channels: 3, background: { r: 200, g: 30, b: 30 } } }).toColourspace("rgb16").png().toBuffer();
+    for (const input of [grey, alpha, deep]) {
+      const prepared = await prepareStill(input, { sourceType: "upload", sourceRef: null });
+      expect(isBaselineJpeg(prepared.working)).toBe(true);
+      expect(isBaselineJpeg(prepared.jev)).toBe(true);
+      expect((await sharp(prepared.working).metadata()).channels).toBe(3);
+      expect(prepared.partial.palette.reduce((sum, swatch) => sum + swatch.weight, 0)).toBeCloseTo(1, 5);
+    }
+    expect((await prepareStill(grey, { sourceType: "upload", sourceRef: null })).partial.is_monochrome).toBe(true);
+    expect((await prepareStill(deep, { sourceType: "upload", sourceRef: null })).partial.dominant_hex).toMatch(/^#c[0-9a-f]1[0-9a-f]1[0-9a-f]$/);
   });
 });
 
@@ -199,6 +277,42 @@ describe("queue, picker, daemon", () => {
     expect((await store.queueState()).paused).toBe(true);
   });
 
+  it("reserves spend so concurrent workers never pass the cap", async () => {
+    const store = createStore(openSqlite(":memory:"));
+    const records = Array.from({ length: 6 }, (_, index) => syntheticRecord(20 + index));
+    for (const record of records) await store.upsert(record);
+    let calls = 0;
+    let inFlight = 0;
+    let peak = 0;
+    const capped = { ...settings, mean_input_tokens: 1_000_000, price_per_million_input_tokens: 0.25, monthly_cap_usd: 0.75 };
+    const summary = await runTagQueue(
+      records.map((record) => ({ imageId: record.id, hash: record.hash, photo: new Uint8Array([1]), privacy: false })),
+      {
+        store,
+        settings: capped,
+        vocab,
+        now: new Date("2026-03-01T00:00:00.000Z"),
+        sleep: async () => undefined,
+        concurrency: 4,
+        client: {
+          async systemOne() {
+            calls += 1;
+            inFlight += 1;
+            peak = Math.max(peak, inFlight);
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+            inFlight -= 1;
+            return { model: "jev-1.14.0", usage: { input_tokens: 1_000_000, output_tokens: 1 }, answers: { has_text: { type: "noul", noul: 0.1 } } };
+          },
+        },
+      },
+    );
+    expect(peak).toBeGreaterThan(1);
+    expect(calls).toBe(3);
+    expect(summary.tagged).toBe(3);
+    expect(summary.paused).toBe(true);
+    expect((await store.getSpend("2026-03")).usd).toBeLessThanOrEqual(capped.monthly_cap_usd);
+  });
+
   it("uses the tag cache and upgrades a sharper takeout twin", async () => {
     const store = createStore(openSqlite(":memory:"));
     const original = syntheticRecord(9, { file_size: 100, taken_at: "2020-01-01T00:00:00.000Z", phash: "0000000000000000" });
@@ -283,6 +397,27 @@ describe("queue, picker, daemon", () => {
     const modern = entries.find((entry) => entry.filename.endsWith("IMG_2838.JPG"));
     expect(modern?.sourceRef).toBe("IMG_2838.JPG");
     expect(modern?.takenAt).toBe("2025-01-02T05:36:01.000Z");
+    const zipDir = mkdtempSync(join(tmpdir(), "gallery-zip-"));
+    const zipPath = join(zipDir, "takeout-001.zip");
+    const reordered = zipSync({
+      "Takeout/Google Photos/B.jpg": [jpeg, { level: 0 }],
+      "Takeout/Google Photos/A.jpg": jpeg,
+      "Takeout/Google Photos/A.jpg.json": strToU8(JSON.stringify({ title: "A.jpg", photoTakenTime: { timestamp: "1600000000" } })),
+      "Takeout/Google Photos/B.jpg.supplemental-metadata.json": strToU8(JSON.stringify({ title: "B.jpg", photoTakenTime: { timestamp: "1735796161" } })),
+    });
+    writeFileSync(zipPath, reordered);
+    const streamed = [...iterateTakeoutZip(zipPath)];
+    expect(streamed.map(({ filename, takenAt, sourceRef }) => ({ filename, takenAt, sourceRef }))).toEqual(
+      readTakeout(reordered).map(({ filename, takenAt, sourceRef }) => ({ filename, takenAt, sourceRef })),
+    );
+    expect(streamed.map((entry) => entry.takenAt)).toEqual(["2025-01-02T05:36:01.000Z", "2020-09-13T12:26:40.000Z"]);
+    for (const entry of streamed) expect(Buffer.from(entry.bytes).equals(jpeg)).toBe(true);
+    const corrupt = Buffer.from(reordered);
+    const storedAt = corrupt.indexOf(jpeg);
+    corrupt[storedAt + 100] = (corrupt[storedAt + 100] ?? 0) ^ 0xff;
+    writeFileSync(zipPath, corrupt);
+    expect(() => [...iterateTakeoutZip(zipPath)]).toThrow(/crc/);
+    rmSync(zipDir, { recursive: true, force: true });
     const store = createStore(openSqlite(":memory:"));
     const dir = mkdtempSync(join(tmpdir(), "gallery-inbox-"));
     writeFileSync(join(dir, "a.jpg"), jpeg);
@@ -321,4 +456,61 @@ describe("queue, picker, daemon", () => {
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+}
+
+function legacySummary(pixels: Pixel[], width: number, height: number, gray: Uint8Array) {
+  const lumas = pixels.map((pixel) => (0.2126 * pixel.r + 0.7152 * pixel.g + 0.0722 * pixel.b) / 255);
+  const avgLuminance = lumas.reduce((sum, value) => sum + value, 0) / lumas.length;
+  const contrast = Math.sqrt(lumas.reduce((sum, value) => sum + (value - avgLuminance) ** 2, 0) / lumas.length);
+  const chromas = pixels.map((pixel) => rgbToOklab(pixel.r, pixel.g, pixel.b)).map((lab) => Math.hypot(lab.a, lab.b));
+  const saturation = chromas.reduce((sum, value) => sum + value, 0) / chromas.length;
+  const laplacian: number[] = [];
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const at = (dx: number, dy: number) => gray[(y + dy) * width + (x + dx)] ?? 0;
+      laplacian.push(at(0, -1) + at(0, 1) + at(-1, 0) + at(1, 0) - 4 * at(0, 0));
+    }
+  }
+  const laplacianMean = laplacian.reduce((sum, value) => sum + value, 0) / laplacian.length;
+  const variance = laplacian.reduce((sum, value) => sum + (value - laplacianMean) ** 2, 0) / laplacian.length;
+  const corners = [0, width - 1, (height - 1) * width, width * height - 1].map((index) => pixels[index] ?? { r: 0, g: 0, b: 0 });
+  const corner = {
+    r: corners.reduce((sum, pixel) => sum + pixel.r, 0) / 4,
+    g: corners.reduce((sum, pixel) => sum + pixel.g, 0) / 4,
+    b: corners.reduce((sum, pixel) => sum + pixel.b, 0) / 4,
+  };
+  const distanceOf = (pixel: Pixel) => Math.hypot(pixel.r - corner.r, pixel.g - corner.g, pixel.b - corner.b);
+  const warmth = pixels.reduce((sum, pixel) => sum + (pixel.r - pixel.b), 0) / pixels.length;
+  const composition: string[] = [];
+  let diff = 0;
+  let count = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < Math.floor(width / 2); x += 1) {
+      diff += Math.abs((gray[y * width + x] ?? 0) - (gray[y * width + (width - 1 - x)] ?? 0));
+      count += 1;
+    }
+  }
+  if (count > 0 && diff / count < 8) composition.push("symmetry");
+  composition.push(variance > 40 ? "busy" : "clean");
+  let weight = 0;
+  let sx = 0;
+  let sy = 0;
+  pixels.forEach((pixel, index) => {
+    const distance = distanceOf(pixel);
+    if (distance < 24) return;
+    weight += distance;
+    sx += (index % width) * distance;
+    sy += Math.floor(index / width) * distance;
+  });
+  if (weight > 0 && Math.hypot(sx / weight / width - 0.5, sy / weight / height - 0.5) < 0.18) composition.push("centered");
+  return {
+    avgLuminance,
+    contrast,
+    saturation,
+    negativeSpace: pixels.filter((pixel) => distanceOf(pixel) < 18).length / pixels.length,
+    sharpness: variance < 20 ? "blurry" : variance < 80 ? "soft" : "sharp",
+    composition,
+    temperature: warmth > 12 ? "warm" : warmth < -12 ? "cool" : "neutral",
+    isMonochrome: saturation < 0.02,
+  };
 }

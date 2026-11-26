@@ -30,27 +30,53 @@ export async function runTagQueue(
     sleep: (ms: number) => Promise<void>;
     place?: (bytes: Uint8Array) => unknown;
     writeSidecar?: (imageId: string) => Promise<void>;
+    concurrency?: number;
   },
 ): Promise<QueueSummary> {
+  const concurrency = deps.concurrency ?? 1;
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency must be a positive integer");
   const summary: QueueSummary = { tagged: 0, cached: 0, failed: 0, skipped: 0, paused: false };
   const month = monthKey(deps.now);
-  for (const item of items) {
+  const estimateUsd = estimateSpendUsd(1, deps.settings.mean_input_tokens, deps.settings.price_per_million_input_tokens);
+  const holds = new Set<{ usd: number }>();
+  let stopped = false;
+  let gate: Promise<unknown> = Promise.resolve();
+  const exclusive = <T>(task: () => Promise<T>): Promise<T> => {
+    const run = gate.then(task);
+    gate = run.catch(() => undefined);
+    return run;
+  };
+  const reserve = (hold: { usd: number }, usd: number): Promise<boolean> =>
+    exclusive(async () => {
+      const spent = await deps.store.getSpend(month);
+      let heldUsd = 0;
+      for (const other of holds) heldUsd += other.usd;
+      if (wouldExceedCap(spent.usd + heldUsd, usd, deps.settings.monthly_cap_usd)) return false;
+      hold.usd += usd;
+      holds.add(hold);
+      return true;
+    });
+  const pause = async (): Promise<void> => {
+    stopped = true;
+    summary.paused = true;
+    await deps.store.setQueuePaused(true, "monthly cap");
+  };
+
+  const tagOne = async (item: QueueItem): Promise<void> => {
     if (item.privacy) {
       summary.skipped += 1;
-      continue;
+      return;
     }
     const cached = await deps.store.getTagCache(item.hash, deps.settings.model_version, deps.settings.vocab_version);
     if (cached) {
       await deps.store.saveAnalysis(item.imageId, { ...cached, image_id: item.imageId });
       summary.cached += 1;
-      continue;
+      return;
     }
-    const spent = await deps.store.getSpend(month);
-    const nextUsd = estimateSpendUsd(1, deps.settings.mean_input_tokens, deps.settings.price_per_million_input_tokens);
-    if (wouldExceedCap(spent.usd, nextUsd, deps.settings.monthly_cap_usd)) {
-      summary.paused = true;
-      await deps.store.setQueuePaused(true, "monthly cap");
-      break;
+    const hold = { usd: 0 };
+    if (!(await reserve(hold, estimateUsd))) {
+      await pause();
+      return;
     }
     try {
       const first = await withStatusRetry(
@@ -67,14 +93,13 @@ export async function runTagQueue(
       );
       let answers = first.analysis.answers;
       let tokens = first.inputTokens;
+      hold.usd = estimateSpendUsd(1, tokens, deps.settings.price_per_million_input_tokens);
+      let capped = false;
       const low = answers.filter((answer) => answer.type === "choice" && (answer.confidence ?? 1) < 0.6);
       if (low.length > 0) {
-        const spentNow = await deps.store.getSpend(month);
-        const billed = estimateSpendUsd(1, tokens, deps.settings.price_per_million_input_tokens);
-        const secondEstimate = estimateSpendUsd(1, deps.settings.mean_input_tokens, deps.settings.price_per_million_input_tokens);
-        if (wouldExceedCap(spentNow.usd + billed, secondEstimate, deps.settings.monthly_cap_usd)) {
-          summary.paused = true;
-          await deps.store.setQueuePaused(true, "monthly cap");
+        if (!(await reserve(hold, estimateUsd))) {
+          capped = true;
+          await pause();
         } else {
           const second = await analyzeImage({
             client: deps.client,
@@ -98,16 +123,30 @@ export async function runTagQueue(
       await deps.store.saveAnalysis(item.imageId, analysis);
       await deps.store.putTagCache(item.hash, deps.settings.model_version, deps.settings.vocab_version, analysis);
       const usd = estimateSpendUsd(1, tokens, deps.settings.price_per_million_input_tokens);
-      await deps.store.addSpend(month, tokens, usd);
-      if (summary.paused) break;
+      await exclusive(async () => {
+        await deps.store.addSpend(month, tokens, usd);
+        holds.delete(hold);
+      });
+      if (capped) return;
       if (deps.writeSidecar) await deps.writeSidecar(item.imageId);
       summary.tagged += 1;
     } catch {
+      holds.delete(hold);
       const current = await deps.store.get(item.imageId);
       if (current) await deps.store.update({ ...current, needs_tags: true });
       summary.failed += 1;
     }
-  }
+  };
+
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (!stopped && cursor < items.length) {
+      const item = items[cursor];
+      cursor += 1;
+      if (item) await tagOne(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, items.length)) }, worker));
   const spent = await deps.store.getSpend(month);
   if (spent.usd >= deps.settings.monthly_cap_usd) {
     summary.paused = true;

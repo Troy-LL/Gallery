@@ -27,8 +27,13 @@ export function sidecarDocument(record: LibraryRecord): { json: string; xmp: str
   return { json, xmp };
 }
 
+const createdDirectories = new Set<string>();
+
 export function writeSidecar(directory: string, record: LibraryRecord): void {
-  mkdirSync(directory, { recursive: true });
+  if (!createdDirectories.has(directory)) {
+    mkdirSync(directory, { recursive: true });
+    createdDirectories.add(directory);
+  }
   const doc = sidecarDocument(record);
   writeFileSync(join(directory, `${record.hash}.json`), doc.json);
   writeFileSync(join(directory, `${record.hash}.xmp`), doc.xmp);
