@@ -134,4 +134,91 @@ describe("post preview", () => {
     expect(block).toMatch(/border-radius:\s*var\(--radius-chrome\)/);
     expect(block).not.toMatch(/border-radius:\s*4px/);
   });
+
+  it("scrolls side to side on an Instagram carousel via controls, dots, keys, and scroll", () => {
+    const igCarousel = parsePlatformConfig({
+      id: "instagram",
+      version: "1",
+      last_verified: "2026-11-24",
+      export_px: 1080,
+      surfaces: [
+        { id: "feed_square", label: "Feed square", aspect: 1, kind: "single", min_images: 1, max_images: 1 },
+        { id: "carousel", label: "Carousel", aspect: 0.8, kind: "carousel", min_images: 2, max_images: 10 },
+      ],
+      frame_tokens: { preview_label: "Preview", avatar: "placeholder", name: "Member" },
+      media_rules: { fit: "cover" },
+      caption_rules: { max_chars: 125, max_lines: 2, see_more_label: "see more" },
+    });
+    const threeRecords = [
+      ...records,
+      { id: "third", width: 1000, height: 1250, subject_box: null },
+    ] as PublicRecord[];
+    const { host } = renderPreview({
+      records: threeRecords,
+      orderedIds: ["wide", "square", "third"],
+      platforms: [igCarousel, platform("linkedin", 4), platform("facebook", 4)],
+    });
+
+    const ig = host.querySelector("[data-platform='instagram']");
+    const track = ig?.querySelector(".carousel-track") as HTMLDivElement | null;
+    expect(track?.getAttribute("data-kind")).toBe("carousel");
+    expect(ig?.querySelectorAll(".carousel-slide")).toHaveLength(3);
+    expect(ig?.querySelector(".carousel-counter")?.textContent).toBe("1/3");
+    expect(ig?.querySelector(".carousel-prev")).toBeNull();
+    expect(ig?.querySelector(".carousel-next")).not.toBeNull();
+
+    act(() => {
+      (ig?.querySelector(".carousel-next") as HTMLButtonElement | null)?.click();
+    });
+    expect(ig?.querySelector(".carousel-counter")?.textContent).toBe("2/3");
+    expect(ig?.querySelector(".carousel-prev")).not.toBeNull();
+
+    const dots = [...(ig?.querySelectorAll(".carousel-dot") ?? [])] as HTMLButtonElement[];
+    expect(dots).toHaveLength(3);
+    act(() => {
+      dots[2]?.click();
+    });
+    expect(ig?.querySelector(".carousel-counter")?.textContent).toBe("3/3");
+    expect(ig?.querySelector(".carousel-next")).toBeNull();
+
+    act(() => {
+      track?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    });
+    expect(ig?.querySelector(".carousel-counter")?.textContent).toBe("2/3");
+
+    if (track) {
+      Object.defineProperty(track, "clientWidth", { value: 348, configurable: true });
+      track.scrollLeft = 0;
+      act(() => {
+        track.dispatchEvent(new Event("scroll"));
+      });
+    }
+    expect(ig?.querySelector(".carousel-counter")?.textContent).toBe("1/3");
+  });
+
+  it("matches native platform layout order for Instagram, LinkedIn, and Facebook", () => {
+    const { host } = renderPreview();
+    const ig = host.querySelector("[data-platform='instagram']");
+    const li = host.querySelector("[data-platform='linkedin']");
+    const fb = host.querySelector("[data-platform='facebook']");
+
+    expect(ig?.querySelector(".post-copy")).toBeNull();
+    expect(ig?.querySelector(".post-footer .caption")).not.toBeNull();
+    expect(li?.querySelector(".post-copy .caption")).not.toBeNull();
+    expect(li?.textContent).toContain("Repost");
+    expect(fb?.querySelector(".post-copy .caption")).not.toBeNull();
+    expect(fb?.textContent).toContain("Share");
+  });
+
+  it("uses thumbs in Compare mode and working copies only for Focus mode active frames", () => {
+    const compare = renderPreview({ focus: "compare" });
+    const compareSrcs = [...compare.host.querySelectorAll(".frame img")].map((img) => img.getAttribute("src"));
+    expect(compareSrcs.length).toBeGreaterThan(0);
+    expect(compareSrcs.every((src) => src?.endsWith("?kind=thumb"))).toBe(true);
+
+    const focused = renderPreview({ focus: "focus", platformId: "linkedin" });
+    const focusSrcs = [...focused.host.querySelectorAll(".frame img")].map((img) => img.getAttribute("src"));
+    expect(focusSrcs.some((src) => src?.endsWith("?kind=working"))).toBe(true);
+    expect(focusSrcs.some((src) => src?.endsWith("?kind=thumb"))).toBe(true);
+  });
 });

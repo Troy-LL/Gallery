@@ -136,62 +136,80 @@ export function TopBar(props: TopBarProps) {
             Clear all
           </button>
           <div className="filters" aria-label="Facet filters">
-            {ORIENTATIONS.map((orientation) => (
-              <button
-                key={orientation}
-                type="button"
-                aria-pressed={props.facets.orientation?.includes(orientation) ?? false}
-                onClick={() => props.onOrientation(orientation)}
-              >
-                {orientation}
+            <div className="facet-group">
+              <span className="facet-label">Orientation</span>
+              {ORIENTATIONS.map((orientation) => (
+                <button
+                  key={orientation}
+                  type="button"
+                  aria-pressed={props.facets.orientation?.includes(orientation) ?? false}
+                  onClick={() => props.onOrientation(orientation)}
+                >
+                  {orientation}
+                </button>
+              ))}
+            </div>
+            <div className="facet-group">
+              <span className="facet-label">Aspect</span>
+              {ASPECT_BUCKETS.map((bucket) => (
+                <button
+                  key={bucket}
+                  type="button"
+                  aria-pressed={props.facets.aspect_ratio?.includes(bucket) ?? false}
+                  onClick={() => props.onAspectRatio(bucket)}
+                >
+                  {bucket}
+                </button>
+              ))}
+            </div>
+            <div className="facet-group">
+              <span className="facet-label">Sharpness</span>
+              {SHARPNESS.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={props.facets.sharpness?.includes(value) ?? false}
+                  onClick={() => props.onSharpness(value)}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+            <div className="facet-group">
+              <span className="facet-label">Temperature</span>
+              {TEMPERATURES.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={props.facets.temperature?.includes(value) ?? false}
+                  onClick={() => props.onTemperature(value)}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+            <div className="facet-group">
+              <span className="facet-label">Library</span>
+              <button type="button" aria-pressed={props.facets.favorites === true} onClick={props.onFavorites}>
+                favorites
               </button>
-            ))}
-            {ASPECT_BUCKETS.map((bucket) => (
-              <button
-                key={bucket}
-                type="button"
-                aria-pressed={props.facets.aspect_ratio?.includes(bucket) ?? false}
-                onClick={() => props.onAspectRatio(bucket)}
-              >
-                {bucket}
+              <button type="button" aria-pressed={props.facets.neverUsed === true} onClick={props.onNeverUsed}>
+                never used
               </button>
-            ))}
-            {SHARPNESS.map((value) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={props.facets.sharpness?.includes(value) ?? false}
-                onClick={() => props.onSharpness(value)}
-              >
-                {value}
-              </button>
-            ))}
-            {TEMPERATURES.map((value) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={props.facets.temperature?.includes(value) ?? false}
-                onClick={() => props.onTemperature(value)}
-              >
-                {value}
-              </button>
-            ))}
-            <button type="button" aria-pressed={props.facets.favorites === true} onClick={props.onFavorites}>
-              favorites
-            </button>
-            <button type="button" aria-pressed={props.facets.neverUsed === true} onClick={props.onNeverUsed}>
-              never used
-            </button>
-            {STATUSES.map((value) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={props.facets.status?.includes(value) ?? false}
-                onClick={() => props.onStatus(value)}
-              >
-                {value}
-              </button>
-            ))}
+            </div>
+            <div className="facet-group">
+              <span className="facet-label">Status</span>
+              {STATUSES.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={props.facets.status?.includes(value) ?? false}
+                  onClick={() => props.onStatus(value)}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="chips" aria-label="Active filters">
             {props.chips.map((chip) => (

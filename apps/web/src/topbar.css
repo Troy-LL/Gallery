@@ -114,11 +114,17 @@ header nav,
 }
 
 .filters,
-.chips {
+.chips,
+.facet-group {
   display: flex;
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.facet-label {
+  font-size: 0.75rem;
+  color: var(--ink-2);
 }
 
 .chips > span {

@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { STATUSES, type Collection, type Post } from "@gallery/core";
-import type { PublicRecord } from "../api/client";
-import { api, saveCuration } from "../api/client";
+import { api, getImage, saveCuration, type DetailRecord, type PublicRecord } from "../api/client";
 
 export type LightboxProps = {
   record: PublicRecord;
@@ -14,13 +13,15 @@ export type LightboxProps = {
 const INK = "#141413";
 const PAPER = "#fcfcfb";
 
-type Answer = PublicRecord["answers"][number];
+type Answer = DetailRecord["answers"][number];
 type SimilarMatch = { id: string; score: number };
 
 export function Lightbox(props: LightboxProps) {
   const [status, setStatus] = useState(props.record.status);
+  const [detail, setDetail] = useState<DetailRecord | null>(null);
+  const [loadedId, setLoadedId] = useState<string | null>(null);
   const [matches, setMatches] = useState<SimilarMatch[]>([]);
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [allPosts, setAllPosts] = useState<Post[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const closeRef = useRef<HTMLButtonElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
@@ -28,6 +29,13 @@ export function Lightbox(props: LightboxProps) {
   const index = props.records.findIndex((item) => item.id === props.record.id);
   const previous = index > 0 ? props.records[index - 1] : undefined;
   const next = index >= 0 ? props.records[index + 1] : undefined;
+  const activeDetail = detail?.id === props.record.id ? detail : null;
+  const workingLoaded = loadedId === props.record.id;
+  const posts = useMemo(
+    () => allPosts.filter((post) => post.image_ids.includes(props.record.id)),
+    [allPosts, props.record.id],
+  );
+  const palette = activeDetail?.palette ?? props.record.palette;
 
   useEffect(() => {
     setStatus(props.record.status);
@@ -39,6 +47,23 @@ export function Lightbox(props: LightboxProps) {
     closeRef.current?.focus();
     return () => {
       restoreRef.current?.focus();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<{ posts: Post[] }>("/api/posts")
+      .then((result) => {
+        if (!cancelled) setAllPosts(result.posts);
+      })
+      .catch(() => undefined);
+    void api<{ collections: Collection[] }>("/api/collections")
+      .then((result) => {
+        if (!cancelled) setCollections(result.collections);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -71,29 +96,36 @@ export function Lightbox(props: LightboxProps) {
 
   useEffect(() => {
     const id = props.record.id;
+    const controller = new AbortController();
     let cancelled = false;
-    void api<{ matches: SimilarMatch[] }>(`/api/similar/${id}`)
+    void getImage(id, controller.signal)
+      .then((result) => {
+        if (!cancelled) setDetail(result.record);
+      })
+      .catch(() => undefined);
+    void api<{ matches: SimilarMatch[] }>(`/api/similar/${id}`, { signal: controller.signal })
       .then((result) => {
         if (!cancelled) setMatches(result.matches);
       })
       .catch(() => undefined);
-    void api<{ posts: Post[] }>("/api/posts")
-      .then((result) => {
-        if (!cancelled) setPosts(result.posts.filter((post) => post.image_ids.includes(id)));
-      })
-      .catch(() => undefined);
-    void api<{ collections: Collection[] }>("/api/collections")
-      .then((result) => {
-        if (!cancelled) setCollections(result.collections);
-      })
-      .catch(() => undefined);
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [props.record.id]);
 
+  useEffect(() => {
+    const preloadIds = [previous?.id, next?.id].filter((id): id is string => Boolean(id));
+    for (const id of preloadIds) {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = `/api/media/${id}?kind=working`;
+    }
+  }, [previous?.id, next?.id]);
+
   async function save(patch: unknown) {
-    await saveCuration(props.record.id, patch);
+    const result = await saveCuration(props.record.id, patch);
+    if (result?.record) setDetail(result.record);
     props.onChange();
   }
 
@@ -137,7 +169,7 @@ export function Lightbox(props: LightboxProps) {
     });
   }
 
-  const visibleAnswers = props.record.answers.filter((answer) => answer.value !== null);
+  const visibleAnswers = activeDetail ? activeDetail.answers.filter((answer) => answer.value !== null) : [];
 
   return (
     <div className="lightbox-root">
@@ -155,12 +187,26 @@ export function Lightbox(props: LightboxProps) {
           >
             Previous
           </button>
-          <img
-            className="lightbox-photo"
-            src={`/api/media/${props.record.id}?kind=working`}
-            alt=""
-            style={{ maxHeight: "70vh" }}
-          />
+          <div className="lightbox-media">
+            {workingLoaded ? null : (
+              <img
+                className="lightbox-photo lightbox-thumb"
+                src={`/api/media/${props.record.id}?kind=thumb`}
+                alt=""
+                decoding="async"
+                style={{ maxHeight: "70vh" }}
+              />
+            )}
+            <img
+              className={`lightbox-photo lightbox-working${workingLoaded ? " is-loaded" : ""}`}
+              src={`/api/media/${props.record.id}?kind=working`}
+              alt=""
+              fetchPriority="high"
+              decoding="async"
+              style={{ maxHeight: "70vh" }}
+              onLoad={() => setLoadedId(props.record.id)}
+            />
+          </div>
           <button
             type="button"
             className="lightbox-nav lightbox-next"
@@ -197,7 +243,7 @@ export function Lightbox(props: LightboxProps) {
             ))}
           </div>
           <div className="swatches">
-            {props.record.palette.map((swatch) => {
+            {palette.map((swatch) => {
               const ink = swatchLabelColor(swatch.hex);
               return (
                 <div className="swatch" key={swatch.hex}>
@@ -218,52 +264,58 @@ export function Lightbox(props: LightboxProps) {
               );
             })}
           </div>
-          <div className="tag-row">
-            {visibleAnswers.map((answer) => (
-              <span className="tag-chip" key={answer.question_id}>
-                <span>{String(answer.value)}</span>
-                {answer.probability !== undefined ? <span>{answer.probability}</span> : null}
-                <button type="button" aria-label={`Remove ${String(answer.value)}`} onClick={() => removeTag(answer)}>
-                  Remove
-                </button>
-              </span>
-            ))}
-          </div>
-          <form aria-label="Add tag" onSubmit={addTag}>
-            <input name="question" aria-label="Tag question" />
-            <input name="value" aria-label="Tag value" />
-            <button type="submit">Add tag</button>
-          </form>
-          <label>
-            Notes
-            <textarea
-              aria-label="Notes"
-              key={`${props.record.id}:${props.record.notes ?? ""}`}
-              defaultValue={props.record.notes ?? ""}
-              onBlur={(event) => {
-                const nextNotes = event.currentTarget.value;
-                if (nextNotes === (props.record.notes ?? "")) return;
-                void save({ notes: nextNotes });
-              }}
-            />
-          </label>
-          <label>
-            Credit
-            <input
-              aria-label="Credit"
-              key={`${props.record.id}:${props.record.source_credit ?? ""}`}
-              defaultValue={props.record.source_credit ?? ""}
-              onBlur={(event) => {
-                const nextCredit = event.currentTarget.value;
-                if (nextCredit === (props.record.source_credit ?? "")) return;
-                void save({ source_credit: nextCredit });
-              }}
-            />
-          </label>
+          {activeDetail ? (
+            <>
+              <div className="tag-row">
+                {visibleAnswers.map((answer) => (
+                  <span className="tag-chip" key={answer.question_id}>
+                    <span>{String(answer.value)}</span>
+                    {answer.probability !== undefined ? <span>{answer.probability}</span> : null}
+                    <button type="button" aria-label={`Remove ${String(answer.value)}`} onClick={() => removeTag(answer)}>
+                      Remove
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <form aria-label="Add tag" onSubmit={addTag}>
+                <input name="question" aria-label="Tag question" />
+                <input name="value" aria-label="Tag value" />
+                <button type="submit">Add tag</button>
+              </form>
+              <label>
+                Notes
+                <textarea
+                  aria-label="Notes"
+                  key={`${activeDetail.id}:${activeDetail.notes ?? ""}`}
+                  defaultValue={activeDetail.notes ?? ""}
+                  onBlur={(event) => {
+                    const nextNotes = event.currentTarget.value;
+                    if (nextNotes === (activeDetail.notes ?? "")) return;
+                    void save({ notes: nextNotes });
+                  }}
+                />
+              </label>
+              <label>
+                Credit
+                <input
+                  aria-label="Credit"
+                  key={`${activeDetail.id}:${activeDetail.source_credit ?? ""}`}
+                  defaultValue={activeDetail.source_credit ?? ""}
+                  onBlur={(event) => {
+                    const nextCredit = event.currentTarget.value;
+                    if (nextCredit === (activeDetail.source_credit ?? "")) return;
+                    void save({ source_credit: nextCredit });
+                  }}
+                />
+              </label>
+            </>
+          ) : (
+            <p className="lightbox-loading">Loading details…</p>
+          )}
           <section aria-label="Similar images" className="lightbox-strip">
             {matches.map((match) => (
               <button key={match.id} type="button" onClick={() => props.onNavigate(match.id)}>
-                <img src={`/api/media/${match.id}?kind=thumb`} alt="" />
+                <img src={`/api/media/${match.id}?kind=thumb`} alt="" decoding="async" />
                 <span>{match.id}</span>
               </button>
             ))}

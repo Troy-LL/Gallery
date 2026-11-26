@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import type { Facets, FilterChip, Palette, PlatformConfig } from "@gallery/core";
 import {
   emptyQuery,
@@ -21,6 +21,8 @@ import { GridHeader } from "./shell/GridHeader";
 import { Rail } from "./shell/Rail";
 import { TopBar, type WorkspaceMode } from "./shell/TopBar";
 
+const SLIDER_DEBOUNCE_MS = 120;
+
 /** Stable wheel slot — PR-06 may edit wheel files only. */
 export type WheelSlotProps = ComponentProps<typeof Wheel>;
 
@@ -29,7 +31,6 @@ export type PreviewSlotProps = ComponentProps<typeof Preview>;
 
 export function App() {
   const [libraryRecords, setLibraryRecords] = useState<PublicRecord[]>([]);
-  const [gridRecords, setGridRecords] = useState<PublicRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [matched, setMatched] = useState(0);
   const [maxChroma, setMaxChroma] = useState(0.2);
@@ -63,6 +64,49 @@ export function App() {
   const [strictness, setStrictness] = useState(0.5);
   const addPhotosRef = useRef<HTMLButtonElement>(null);
   const importPopoverRef = useRef<HTMLDivElement>(null);
+  const facetsRef = useRef(facets);
+  facetsRef.current = facets;
+  const abortRef = useRef<AbortController | null>(null);
+  const requestSeqRef = useRef(0);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const reload = useCallback(async (nextFacets: Facets = facetsRef.current) => {
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const seq = ++requestSeqRef.current;
+
+    try {
+      const libraryResult = await queryLibrary(emptyQuery(nextFacets, { type: "all" }), controller.signal);
+      if (seq !== requestSeqRef.current) return;
+      setLibraryRecords(libraryResult.records);
+      setTotal(libraryResult.total);
+      setMatched(libraryResult.matched);
+      setMaxChroma(libraryResult.maxChroma || 0.2);
+      setError(null);
+    } catch (reason: unknown) {
+      if (controller.signal.aborted || seq !== requestSeqRef.current) return;
+      if (reason instanceof DOMException && reason.name === "AbortError") return;
+      setError(reason instanceof Error ? reason.message : "The gallery API is not running.");
+    }
+  }, []);
+
+  const scheduleReload = useCallback((nextFacets: Facets) => {
+    if (debounceTimerRef.current !== null) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null;
+      void reload(nextFacets);
+    }, SLIDER_DEBOUNCE_MS);
+  }, [reload]);
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    if (debounceTimerRef.current !== null) clearTimeout(debounceTimerRef.current);
+  }, []);
 
   function toggleFacetList<Key extends "aspect_ratio" | "sharpness" | "temperature" | "status">(
     key: Key,
@@ -75,50 +119,49 @@ export function App() {
     const list = [...set];
     const next = { ...facets, [key]: list.length ? list : undefined };
     setFacets(next);
-    void reload(next, wheelSelection);
+    void reload(next);
   }
 
   function applyFacets(next: Facets) {
     const strict = withTagStrictness(next, strictness);
     setFacets(strict);
-    void reload(strict, wheelSelection);
+    void reload(strict);
   }
+
+  const libraryById = useMemo(
+    () => new Map(libraryRecords.map((record) => [record.id, record])),
+    [libraryRecords],
+  );
+  const gridRecords = useMemo(() => {
+    if (wheelSelection.length === 0) return libraryRecords;
+    const selected = new Set(wheelSelection);
+    return libraryRecords.filter((record) => selected.has(record.id));
+  }, [libraryRecords, wheelSelection]);
 
   const trayReady = trayIds.length > 0;
   const showWorkspace = total > 0 || Boolean(error);
   const railExpanded = !narrowRail || railOpen;
   const gridEmpty = gridRecords.length === 0;
-  const needsTags = gridRecords.filter((record) => record.needs_tags).length;
-  const displayedGridRecords = needsTagsFilter
-    ? gridRecords.filter((record) => record.needs_tags)
-    : gridRecords;
+  const needsTags = useMemo(
+    () => gridRecords.reduce((count, record) => count + (record.needs_tags ? 1 : 0), 0),
+    [gridRecords],
+  );
+  const displayedGridRecords = useMemo(
+    () => (needsTagsFilter ? gridRecords.filter((record) => record.needs_tags) : gridRecords),
+    [gridRecords, needsTagsFilter],
+  );
   const gridMatched = needsTagsFilter ? displayedGridRecords.length : matched;
-  const visibleIds = displayedGridRecords.map((record) => record.id);
+  const visibleIds = useMemo(() => displayedGridRecords.map((record) => record.id), [displayedGridRecords]);
 
-  async function reload(nextFacets = facets, ids = wheelSelection) {
-    const libraryResult = await queryLibrary(emptyQuery(nextFacets, { type: "all" }));
-    setLibraryRecords(libraryResult.records);
-    setTotal(libraryResult.total);
-    setMatched(libraryResult.matched);
-    setMaxChroma(libraryResult.maxChroma || 0.2);
-
-    if (ids.length > 0) {
-      const gridResult = await queryLibrary(emptyQuery(nextFacets, { type: "ids", ids }));
-      setGridRecords(gridResult.records);
-    } else {
-      setGridRecords(libraryResult.records);
-    }
-  }
-
-  function clearFilters() {
+  const clearFilters = useCallback(() => {
     setFacets({});
     setChips([]);
     setWheelSelection([]);
-    void reload({}, []);
-  }
+    void reload({});
+  }, [reload]);
 
   useEffect(() => {
-    void reload().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "The gallery API is not running."));
+    void reload();
     void loadPlatforms().then((result) => setPlatforms(result.platforms)).catch(() => undefined);
     void listPalettes().then((result) => setPalettes(result.palettes)).catch(() => undefined);
     void fetch("/api/queue").then(async (response) => {
@@ -127,7 +170,7 @@ export function App() {
       setPaused(body.paused);
       setPauseReason(typeof body.reason === "string" ? body.reason : null);
     }).catch(() => undefined);
-  }, []);
+  }, [reload]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1023px)");
@@ -164,22 +207,29 @@ export function App() {
     if (!trayReady && mode === "preview") setMode("gallery");
   }, [trayReady, mode]);
 
-  const open = gridRecords.find((record) => record.id === openId) ?? null;
+  const open = useMemo(
+    () => (openId ? libraryById.get(openId) ?? null : null),
+    [libraryById, openId],
+  );
 
-  function toggleTrayId(id: string) {
+  const toggleTrayId = useCallback((id: string) => {
     setTrayIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
-  }
+  }, []);
 
-  function addVisibleToTray() {
-    setTrayIds((current) => [...current, ...visibleIds.filter((id) => !current.includes(id))]);
-  }
+  const addVisibleToTray = useCallback(() => {
+    setTrayIds((current) => {
+      const existing = new Set(current);
+      const additions = visibleIds.filter((id) => !existing.has(id));
+      return additions.length > 0 ? [...current, ...additions] : current;
+    });
+  }, [visibleIds]);
 
-  function openInspect(id: string) {
+  const openInspect = useCallback((id: string) => {
     setOpenId(id);
     setGridFocusId(id);
-  }
+  }, []);
 
-  function onExport() {
+  const onExport = useCallback(() => {
     if (!trayReady || exporting) return;
     setExporting(true);
     void fetch("/api/export", {
@@ -199,47 +249,79 @@ export function App() {
       })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Export failed"))
       .finally(() => setExporting(false));
-  }
+  }, [trayReady, exporting, trayIds, platformId, stripExif]);
 
-  const wheelSlot: WheelSlotProps = {
+  const handleWheelSelect = useCallback((ids: string[], gestureMode: "replace" | "add" | "subtract") => {
+    setWheelSelection((current) => {
+      switch (gestureMode) {
+        case "replace":
+          return ids;
+        case "add":
+          return [...new Set([...current, ...ids])];
+        case "subtract": {
+          const remove = new Set(ids);
+          return current.filter((id) => !remove.has(id));
+        }
+        default: {
+          const unreachable: never = gestureMode;
+          return unreachable;
+        }
+      }
+    });
+  }, []);
+
+  const handlePreviewMove = useCallback((id: string, direction: -1 | 1) => {
+    setTrayIds((current) => {
+      const index = current.indexOf(id);
+      const next = index + direction;
+      if (index < 0 || next < 0 || next >= current.length) return current;
+      const copy = [...current];
+      const [item] = copy.splice(index, 1);
+      if (!item) return current;
+      copy.splice(next, 0, item);
+      return copy;
+    });
+  }, []);
+
+  const handleRailFacets = useCallback((next: Facets) => {
+    const prev = facetsRef.current;
+    setFacets(next);
+    const lightnessChanged =
+      next.lightness?.min !== prev.lightness?.min || next.lightness?.max !== prev.lightness?.max;
+    const monochromeChanged = next.monochrome !== prev.monochrome;
+    if (lightnessChanged && !monochromeChanged) scheduleReload(next);
+    else void reload(next);
+  }, [reload, scheduleReload]);
+
+  const handleCloseLightbox = useCallback(() => setOpenId(null), []);
+  const handleLightboxChange = useCallback(() => {
+    void reload();
+  }, [reload]);
+
+  const wheelSlot: WheelSlotProps = useMemo(() => ({
     records: libraryRecords,
     maxChroma,
     tool,
     multiSwatch,
     large,
     selectedIds: wheelSelection,
-    onSelect: (ids, gestureMode) => {
-      const next = gestureMode === "replace" ? ids : gestureMode === "add" ? [...new Set([...wheelSelection, ...ids])] : wheelSelection.filter((id) => !ids.includes(id));
-      setWheelSelection(next);
-      void reload(facets, next);
-    },
-  };
+    onSelect: handleWheelSelect,
+  }), [libraryRecords, maxChroma, tool, multiSwatch, large, wheelSelection, handleWheelSelect]);
 
-  const previewSlot: PreviewSlotProps = {
-    records: gridRecords,
+  const previewSlot: PreviewSlotProps = useMemo(() => ({
+    records: libraryRecords,
     orderedIds: trayIds,
     platforms,
     caption,
     onCaption: setCaption,
-    onMove: (id, direction) => {
-      setTrayIds((current) => {
-        const index = current.indexOf(id);
-        const next = index + direction;
-        if (index < 0 || next < 0 || next >= current.length) return current;
-        const copy = [...current];
-        const [item] = copy.splice(index, 1);
-        if (!item) return current;
-        copy.splice(next, 0, item);
-        return copy;
-      });
-    },
+    onMove: handlePreviewMove,
     theme,
     focus,
     platformId,
     onPlatform: setPlatformId,
     onTheme: setTheme,
     onFocus: setFocus,
-  };
+  }), [libraryRecords, trayIds, platforms, caption, handlePreviewMove, theme, focus, platformId]);
 
   function renderCanvas() {
     switch (mode) {
@@ -249,7 +331,8 @@ export function App() {
             <GridHeader
               matched={gridMatched}
               total={total}
-              selectedCount={trayIds.length}
+              selectedCount={wheelSelection.length}
+              trayCount={trayIds.length}
               needsTags={needsTags}
               onSelectAll={addVisibleToTray}
               tile={tile}
@@ -310,7 +393,7 @@ export function App() {
             setEstimateLabel(null);
             setImportOpen(false);
             setWheelSelection([]);
-            return reload(facets, []);
+            return reload(facets);
           });
         }}
         matched={matched}
@@ -361,10 +444,17 @@ export function App() {
             facets: withTagStrictness(chip.facets, value),
           }));
           setChips(nextChips);
-          applyFacets(withTagStrictness(facets, value));
+          const nextFacets = withTagStrictness(facets, value);
+          setFacets(nextFacets);
+          scheduleReload(nextFacets);
         }}
       />
-      {error ? <p role="status">{error}</p> : null}
+      {error ? (
+        <p role="status">
+          {error}
+          <button type="button" className="chrome-btn" onClick={() => void reload()}>Retry</button>
+        </p>
+      ) : null}
       {paused ? (
         <p className="banner">{typeof pauseReason === "string" ? pauseReason : "Queue paused"}</p>
       ) : null}
@@ -376,10 +466,7 @@ export function App() {
             onTool={setTool}
             onLarge={setLarge}
             facets={facets}
-            onFacets={(next) => {
-              setFacets(next);
-              void reload(next, wheelSelection);
-            }}
+            onFacets={handleRailFacets}
             multiSwatch={multiSwatch}
             onMultiSwatch={setMultiSwatch}
             palettes={palettes}
@@ -403,7 +490,7 @@ export function App() {
           </div>
           {total > 0 && mode === "gallery" ? (
             <Tray
-              records={gridRecords}
+              records={libraryRecords}
               orderedIds={trayIds}
               onReorder={setTrayIds}
               onToggle={toggleTrayId}
@@ -421,9 +508,9 @@ export function App() {
         <Lightbox
           record={open}
           records={gridRecords}
-          onClose={() => setOpenId(null)}
+          onClose={handleCloseLightbox}
           onNavigate={setOpenId}
-          onChange={() => void reload()}
+          onChange={handleLightboxChange}
         />
       ) : null}
     </div>

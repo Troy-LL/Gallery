@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createElement } from "react";
+import { createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -38,9 +38,10 @@ describe("grid window", () => {
     expect(columnCount(100, 160)).toBe(1);
   });
 
-  it("maps scroll position to a row window", () => {
+  it("maps scroll position to a row window with overscan above and below", () => {
     expect(visibleRange(0, 400, 168, 40, 4)).toEqual({ start: 0, end: 20 });
-    expect(visibleRange(168, 400, 168, 40, 4)).toEqual({ start: 4, end: 24 });
+    expect(visibleRange(168, 400, 168, 40, 4)).toEqual({ start: 0, end: 24 });
+    expect(visibleRange(168 * 4, 400, 168, 40, 4)).toEqual({ start: 8, end: 36 });
   });
 });
 
@@ -57,6 +58,7 @@ describe("GridHeader", () => {
           matched: 12,
           total: 20,
           selectedCount: 3,
+          trayCount: 1,
           needsTags: 5,
           onSelectAll,
           tile: 160,
@@ -66,8 +68,9 @@ describe("GridHeader", () => {
         }),
       );
     });
-    expect(host.textContent).toContain("12 photos");
+    expect(host.textContent).toContain("12 of 20 photos");
     expect(host.textContent).toContain("3 selected");
+    expect(host.textContent).toContain("1 in the tray");
     expect(host.textContent).toContain("5 need tags");
     expect(host.querySelector("input[aria-label='Tile size']")).toBeTruthy();
     const selectAll = [...host.querySelectorAll("button")].find((button) =>
@@ -99,6 +102,7 @@ describe("GridHeader", () => {
           matched: 60,
           total: 60,
           selectedCount: 0,
+          trayCount: 0,
           needsTags: 0,
           onSelectAll,
           tile: 160,
@@ -114,6 +118,8 @@ describe("GridHeader", () => {
     act(() => {
       selectAll?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+    expect(host.textContent).toContain("0 selected");
+    expect(host.textContent).toContain("0 in the tray");
     expect(confirm).toHaveBeenCalled();
     expect(onSelectAll).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
@@ -220,5 +226,33 @@ describe("Grid", () => {
     });
     expect(onToggle).toHaveBeenCalledWith("photo-1");
     vi.useRealTimers();
+  });
+
+  it("moves DOM focus with the arrow keys", async () => {
+    function Harness() {
+      const [focusId, setFocusId] = useState<string | null>(null);
+      return createElement(Grid, {
+        records: [record("photo-1"), record("photo-2"), record("photo-3")],
+        trayIds: [],
+        focusId,
+        onFocus: setFocusId,
+        onToggle: () => undefined,
+        onInspect: () => undefined,
+        tile: 96,
+      });
+    }
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(createElement(Harness));
+    });
+    const first = host.querySelector("[aria-label='Photo 1']") as HTMLButtonElement;
+    await act(async () => {
+      first.focus();
+    });
+    await act(async () => {
+      first.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Photo 2");
   });
 });

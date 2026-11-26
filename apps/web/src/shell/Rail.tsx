@@ -1,11 +1,12 @@
 import { matchHarmony, type Facets, type Palette, type Swatch } from "@gallery/core";
-import { useState, type ComponentProps } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import { savePalette, type PublicRecord } from "../api/client";
 import { Wheel } from "../wheel/Wheel";
 import { WheelToolMenu } from "../wheel/WheelToolMenu";
 import type { WheelTool } from "../wheel/gesture";
 
 const NEAR_GRAY_CHROMA = 0.02;
+const NEUTRAL_BUCKETS = 100;
 
 type WheelSlotProps = ComponentProps<typeof Wheel>;
 
@@ -31,19 +32,27 @@ export function Rail(props: RailProps) {
   const [colorBlind, setColorBlind] = useState(false);
   const min = props.facets.lightness?.min ?? 0;
   const max = props.facets.lightness?.max ?? 1;
-  const selectedRecords = props.wheelSlot.records.filter((record) => props.wheelSlot.selectedIds.includes(record.id));
+  const { records: wheelRecords, selectedIds } = props.wheelSlot;
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedRecords = useMemo(
+    () => (selectedSet.size === 0 ? [] : wheelRecords.filter((record) => selectedSet.has(record.id))),
+    [wheelRecords, selectedSet],
+  );
   const harmonySource = selectedRecords.length === 1 ? selectedRecords[0] : undefined;
+  const harmonyMatches = useMemo(() => {
+    if (!harmonySource) return null;
+    const rows = wheelRecords.map((record) => ({ id: record.id, hue: record.dominant_oklch.h }));
+    return HARMONY.map((kind) => ({
+      kind,
+      ids: matchHarmony(rows, harmonySource.id, harmonySource.dominant_oklch.h, kind),
+    }));
+  }, [wheelRecords, harmonySource]);
 
   async function saveCurrent() {
     const name = paletteName.trim();
     if (!name) return;
     const selected = props.wheelSlot.selectedIds;
-    const records = selected.length > 0
-      ? selected.flatMap((id) => {
-          const record = props.wheelSlot.records.find((item) => item.id === id);
-          return record ? [record] : [];
-        })
-      : props.wheelSlot.records;
+    const records = selected.length > 0 ? selectedRecords : wheelRecords;
     const palette: Palette = {
       id: crypto.randomUUID(),
       name,
@@ -140,18 +149,14 @@ export function Rail(props: RailProps) {
           Color-blind safe
         </button>
       </fieldset>
-      {harmonySource ? (
+      {harmonyMatches ? (
         <fieldset className="color-group">
           <legend>Harmony</legend>
-          {HARMONY.map((kind) => {
-            const rows = props.wheelSlot.records.map((record) => ({ id: record.id, hue: record.dominant_oklch.h }));
-            const ids = matchHarmony(rows, harmonySource.id, harmonySource.dominant_oklch.h, kind);
-            return (
-              <button key={kind} type="button" onClick={() => props.wheelSlot.onSelect(ids, "replace")}>
-                {`${harmonyLabel(kind)} ${ids.length}`}
-              </button>
-            );
-          })}
+          {harmonyMatches.map(({ kind, ids }) => (
+            <button key={kind} type="button" onClick={() => props.wheelSlot.onSelect(ids, "replace")}>
+              {`${harmonyLabel(kind)} ${ids.length}`}
+            </button>
+          ))}
         </fieldset>
       ) : null}
       <section className="saved-palettes" aria-label="Saved palettes">
@@ -233,7 +238,19 @@ function harmonyLabel(kind: (typeof HARMONY)[number]): string {
 }
 
 function NeutralsStrip(props: { records: PublicRecord[] }) {
-  const dots = props.records.filter((record) => (record.dominant_oklch?.C ?? 1) <= NEAR_GRAY_CHROMA);
+  const dots = useMemo(() => {
+    const seen = new Set<number>();
+    const bucketed: PublicRecord[] = [];
+    for (const record of props.records) {
+      if ((record.dominant_oklch?.C ?? 1) > NEAR_GRAY_CHROMA) continue;
+      const bucket = Math.min(NEUTRAL_BUCKETS - 1, Math.max(0, Math.floor(record.dominant_oklch.L * NEUTRAL_BUCKETS)));
+      if (seen.has(bucket)) continue;
+      seen.add(bucket);
+      bucketed.push(record);
+    }
+    return bucketed;
+  }, [props.records]);
+
   return (
     <div className="neutrals" aria-label="Neutrals">
       {dots.map((record) => (

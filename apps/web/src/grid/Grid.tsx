@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import type { PublicRecord } from "../api/client";
 import { columnCount, visibleRange } from "./window";
 
@@ -15,6 +15,63 @@ export type GridProps = {
 const GAP = 8;
 const TOGGLE_DELAY_MS = 200;
 
+type GridTileProps = {
+  record: PublicRecord;
+  index: number;
+  tile: number;
+  left: number;
+  top: number;
+  inTray: boolean;
+  tabStop: boolean;
+  onFocus: (id: string) => void;
+  onScheduleToggle: (id: string) => void;
+  onInspectTile: (id: string) => void;
+};
+
+const GridTile = memo(function GridTile({
+  record,
+  index,
+  tile,
+  left,
+  top,
+  inTray,
+  tabStop,
+  onFocus,
+  onScheduleToggle,
+  onInspectTile,
+}: GridTileProps) {
+  return (
+    <button
+      data-photo-id={record.id}
+      className={`tile${inTray ? " tile-in-tray" : ""}`}
+      style={{
+        width: tile,
+        height: tile,
+        left,
+        top,
+        backgroundColor: record.dominant_hex,
+      }}
+      tabIndex={tabStop ? 0 : -1}
+      aria-pressed={inTray}
+      aria-label={`Photo ${index + 1}`}
+      onFocus={() => onFocus(record.id)}
+      onClick={() => onScheduleToggle(record.id)}
+      onDoubleClick={() => onInspectTile(record.id)}
+    >
+      <img
+        src={`/api/media/${record.id}?kind=thumb`}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        width={tile}
+        height={tile}
+        draggable={false}
+      />
+      {inTray ? <span className="tray-check" aria-hidden="true">✓</span> : null}
+    </button>
+  );
+});
+
 export function Grid(props: GridProps) {
   const [scrollTop, setScrollTop] = useState(0);
   const [gridWidth, setGridWidth] = useState(0);
@@ -23,6 +80,11 @@ export function Grid(props: GridProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const toggleTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const scrollRafRef = useRef<number | null>(null);
+  const pendingScrollTopRef = useRef(0);
+  const { onFocus, onToggle, onInspect } = props;
+
+  const traySet = useMemo(() => new Set(props.trayIds), [props.trayIds]);
   const columns = columnCount(gridWidth || 640, tile, GAP);
   const rowHeight = tile + GAP;
   const range = visibleRange(scrollTop, viewportHeight || 640, rowHeight, props.records.length, columns);
@@ -43,31 +105,67 @@ export function Grid(props: GridProps) {
     return () => observer.disconnect();
   }, []);
 
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!props.focusId || !grid) return;
+    const button = grid.querySelector<HTMLButtonElement>(`[data-photo-id="${props.focusId}"]`);
+    if (button) {
+      if (document.activeElement !== button) button.focus();
+      return;
+    }
+    const index = props.records.findIndex((record) => record.id === props.focusId);
+    if (index < 0) return;
+    const top = Math.floor(index / columns) * rowHeight;
+    if (grid.scrollTop !== top) {
+      grid.scrollTop = top;
+      setScrollTop(top);
+    }
+  }, [props.focusId, props.records, columns, rowHeight]);
+
   useEffect(() => () => {
     for (const timer of toggleTimers.current.values()) clearTimeout(timer);
     toggleTimers.current.clear();
+    if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
   }, []);
 
-  function cancelToggle(id: string) {
+  const cancelToggle = useCallback((id: string) => {
     const timer = toggleTimers.current.get(id);
     if (!timer) return;
     clearTimeout(timer);
     toggleTimers.current.delete(id);
-  }
+  }, []);
 
-  function scheduleToggle(id: string) {
+  const scheduleToggle = useCallback((id: string) => {
     cancelToggle(id);
     const timer = setTimeout(() => {
       toggleTimers.current.delete(id);
-      props.onToggle(id);
+      onToggle(id);
     }, TOGGLE_DELAY_MS);
     toggleTimers.current.set(id, timer);
-  }
+  }, [cancelToggle, onToggle]);
+
+  const inspectTile = useCallback((id: string) => {
+    cancelToggle(id);
+    onInspect(id);
+  }, [cancelToggle, onInspect]);
+
+  const focusTile = useCallback((id: string) => {
+    onFocus(id);
+  }, [onFocus]);
+
+  const handleScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    pendingScrollTopRef.current = event.currentTarget.scrollTop;
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      setScrollTop(pendingScrollTopRef.current);
+    });
+  }, []);
 
   useEffect(() => {
     const node = wrapRef.current;
     if (!node) return;
-    const { records, focusId, onFocus, onInspect } = props;
+    const { records, focusId } = props;
     function onKeyDown(event: KeyboardEvent) {
       const wrap = wrapRef.current;
       const grid = gridRef.current;
@@ -101,7 +199,7 @@ export function Grid(props: GridProps) {
     }
     node.addEventListener("keydown", onKeyDown);
     return () => node.removeEventListener("keydown", onKeyDown);
-  }, [props.records, props.focusId, props.onFocus, props.onInspect, tile]);
+  }, [props.records, props.focusId, onFocus, onInspect, tile]);
 
   return (
     <div className="grid-wrap" ref={wrapRef} tabIndex={-1}>
@@ -109,39 +207,30 @@ export function Grid(props: GridProps) {
         className="grid"
         ref={gridRef}
         data-count={props.records.length}
-        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        onScroll={handleScroll}
       >
         <div className="grid-inner" style={{ height: totalHeight }}>
           {visible.map((record, offset) => {
             const index = range.start + offset;
-            const inTray = props.trayIds.includes(record.id);
+            const inTray = traySet.has(record.id);
             const focused = props.focusId === record.id;
             const tabStop = focused || (props.focusId === null && offset === 0);
             const col = index % columns;
             const row = Math.floor(index / columns);
             return (
-              <button
+              <GridTile
                 key={record.id}
-                className={`tile${inTray ? " tile-in-tray" : ""}`}
-                style={{
-                  width: tile,
-                  height: tile,
-                  left: col * (tile + GAP),
-                  top: row * rowHeight,
-                }}
-                tabIndex={tabStop ? 0 : -1}
-                aria-pressed={inTray}
-                aria-label={`Photo ${index + 1}`}
-                onFocus={() => props.onFocus(record.id)}
-                onClick={() => scheduleToggle(record.id)}
-                onDoubleClick={() => {
-                  cancelToggle(record.id);
-                  props.onInspect(record.id);
-                }}
-              >
-                <img src={`/api/media/${record.id}?kind=thumb`} alt="" draggable={false} />
-                {inTray ? <span className="tray-check" aria-hidden="true">✓</span> : null}
-              </button>
+                record={record}
+                index={index}
+                tile={tile}
+                left={col * (tile + GAP)}
+                top={row * rowHeight}
+                inTray={inTray}
+                tabStop={tabStop}
+                onFocus={focusTile}
+                onScheduleToggle={scheduleToggle}
+                onInspectTile={inspectTile}
+              />
             );
           })}
         </div>
