@@ -14,9 +14,10 @@ import {
   type LibraryRecord,
   type Palette,
   type Post,
+  type SharpnessLevel,
 } from "@gallery/core";
 import { applyAnswerLock, applyDominantHex, mergeAnalysis, withAnalysis, analysisFromRecord } from "@gallery/core";
-import { IMAGE_COLUMN_ALTERS, SCHEMA, type AsyncDb } from "./db.js";
+import { IMAGE_COLUMN_ALTERS, IMAGE_INDEXES, SCHEMA, type AsyncDb } from "./db.js";
 
 export type UpsertResult = { status: "inserted" | "duplicate"; record: LibraryRecord };
 
@@ -27,7 +28,34 @@ export type QueryResult = {
   maxChroma: number;
 };
 
+export type MediaKeys = { hash: string; file_path: string; thumbnail_path: string };
+
+export type DedupeInput = { id: string; phash: string; sharpness: SharpnessLevel; luminance: number };
+
 type ImageRow = { id: string; hash: string; body: string };
+
+const IMAGE_COLUMNS = [
+  "hash",
+  "source_ref",
+  "taken_at",
+  "phash",
+  "file_size",
+  "orientation",
+  "dominant_h",
+  "dominant_l",
+  "peak_c",
+  "is_monochrome",
+  "file_path",
+  "thumbnail_path",
+  "sharpness",
+  "avg_luminance",
+  "embedding",
+];
+
+const INSERT_IMAGE = `INSERT INTO images (id, ${IMAGE_COLUMNS.join(", ")}, body) VALUES (${placeholders(IMAGE_COLUMNS.length + 2)})`;
+const UPDATE_IMAGE = `UPDATE images SET ${IMAGE_COLUMNS.map((column) => `${column} = ?`).join(", ")}, body = ? WHERE id = ?`;
+const BACKFILL_IMAGE = "UPDATE images SET file_path = ?, thumbnail_path = ?, sharpness = ?, avg_luminance = ?, embedding = ? WHERE id = ?";
+const ID_PARAM_LIMIT = 500;
 
 export function createStore(db: AsyncDb, options: { wrongTagsPath?: string } = {}) {
   let ready: Promise<void> | null = null;
@@ -41,23 +69,39 @@ export function createStore(db: AsyncDb, options: { wrongTagsPath?: string } = {
           continue;
         }
       }
+      await db.exec(IMAGE_INDEXES);
+      await backfillColumns();
     })();
     return ready;
   };
 
+  async function backfillColumns(): Promise<void> {
+    const stale = await db.all<ImageRow>("SELECT id, hash, body FROM images WHERE file_path IS NULL");
+    const records = stale.flatMap((row) => {
+      const record = readRecord(row.body);
+      return record ? [record] : [];
+    });
+    if (records.length === 0) return;
+    await db.exec("BEGIN");
+    try {
+      for (const record of records) await db.run(BACKFILL_IMAGE, [...columnValues(record), record.id]);
+      await db.exec("COMMIT");
+    } catch (error) {
+      await db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   async function read(id: string): Promise<LibraryRecord | null> {
     await ensure();
     const row = await db.get<ImageRow>("SELECT id, hash, body FROM images WHERE id = ?", [id]);
-    return row ? libraryRecordSchema.parse(JSON.parse(row.body)) : null;
+    return row ? readRecord(row.body) : null;
   }
 
   async function write(record: LibraryRecord): Promise<void> {
     await ensure();
     const parsed = libraryRecordSchema.parse(record);
-    await db.run(
-      `UPDATE images SET hash = ?, source_ref = ?, taken_at = ?, phash = ?, file_size = ?, orientation = ?, dominant_h = ?, dominant_l = ?, peak_c = ?, is_monochrome = ?, body = ? WHERE id = ?`,
-      [...imageValues(parsed), JSON.stringify(parsed), parsed.id],
-    );
+    await db.run(UPDATE_IMAGE, [...imageValues(parsed), JSON.stringify(parsed), parsed.id]);
   }
 
   return {
@@ -65,15 +109,14 @@ export function createStore(db: AsyncDb, options: { wrongTagsPath?: string } = {
       await ensure();
       const parsed = libraryRecordSchema.parse(record);
       const byHash = await db.get<ImageRow>("SELECT id, hash, body FROM images WHERE hash = ?", [parsed.hash]);
-      if (byHash) return { status: "duplicate", record: libraryRecordSchema.parse(JSON.parse(byHash.body)) };
+      const duplicate = byHash ? readRecord(byHash.body) : null;
+      if (duplicate) return { status: "duplicate", record: duplicate };
       if (parsed.source_ref) {
         const byRef = await db.get<ImageRow>("SELECT id, hash, body FROM images WHERE source_ref = ?", [parsed.source_ref]);
-        if (byRef) return { status: "duplicate", record: libraryRecordSchema.parse(JSON.parse(byRef.body)) };
+        const refDuplicate = byRef ? readRecord(byRef.body) : null;
+        if (refDuplicate) return { status: "duplicate", record: refDuplicate };
       }
-      await db.run(
-        `INSERT INTO images (id, hash, source_ref, taken_at, phash, file_size, orientation, dominant_h, dominant_l, peak_c, is_monochrome, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [parsed.id, ...imageValues(parsed), JSON.stringify(parsed)],
-      );
+      await db.run(INSERT_IMAGE, [parsed.id, ...imageValues(parsed), JSON.stringify(parsed)]);
       return { status: "inserted", record: parsed };
     },
 
@@ -82,22 +125,52 @@ export function createStore(db: AsyncDb, options: { wrongTagsPath?: string } = {
       return read(id);
     },
 
+    async getMedia(id: string): Promise<MediaKeys | null> {
+      await ensure();
+      const row = await db.get<{ hash: string; file_path: string | null; thumbnail_path: string | null }>(
+        "SELECT hash, file_path, thumbnail_path FROM images WHERE id = ?",
+        [id],
+      );
+      if (!row || row.file_path === null || row.thumbnail_path === null) return null;
+      return { hash: row.hash, file_path: row.file_path, thumbnail_path: row.thumbnail_path };
+    },
+
+    async listEmbeddings(): Promise<{ id: string; embedding: number[] }[]> {
+      await ensure();
+      const rows = await db.all<{ id: string; embedding: string }>("SELECT id, embedding FROM images WHERE embedding IS NOT NULL ORDER BY id");
+      return rows.map((row) => ({ id: row.id, embedding: JSON.parse(row.embedding) as number[] }));
+    },
+
+    async listDedupeInputs(): Promise<DedupeInput[]> {
+      await ensure();
+      const rows = await db.all<{ id: string; phash: string; sharpness: SharpnessLevel; avg_luminance: number }>(
+        "SELECT id, phash, sharpness, avg_luminance FROM images WHERE sharpness IS NOT NULL ORDER BY id",
+      );
+      return rows.map((row) => ({ id: row.id, phash: row.phash, sharpness: row.sharpness, luminance: Number(row.avg_luminance) }));
+    },
+
     async getByHash(hash: string): Promise<LibraryRecord | null> {
       await ensure();
       const row = await db.get<ImageRow>("SELECT id, hash, body FROM images WHERE hash = ?", [hash]);
-      return row ? libraryRecordSchema.parse(JSON.parse(row.body)) : null;
+      return row ? readRecord(row.body) : null;
     },
 
     async list(): Promise<LibraryRecord[]> {
       await ensure();
       const rows = await db.all<ImageRow>("SELECT id, hash, body FROM images ORDER BY id");
-      return rows.map((row) => libraryRecordSchema.parse(JSON.parse(row.body)));
+      return rows.flatMap((row) => {
+        const record = readRecord(row.body);
+        return record ? [record] : [];
+      });
     },
 
     async listByTakenAt(takenAt: string): Promise<LibraryRecord[]> {
       await ensure();
       const rows = await db.all<ImageRow>("SELECT id, hash, body FROM images WHERE taken_at = ?", [takenAt]);
-      return rows.map((row) => libraryRecordSchema.parse(JSON.parse(row.body)));
+      return rows.flatMap((row) => {
+        const record = readRecord(row.body);
+        return record ? [record] : [];
+      });
     },
 
     async update(record: LibraryRecord): Promise<LibraryRecord> {
@@ -113,7 +186,10 @@ export function createStore(db: AsyncDb, options: { wrongTagsPath?: string } = {
       const peakRow = await db.get<{ peak: number }>("SELECT COALESCE(MAX(peak_c), 0) AS peak FROM images");
       const filter = candidateFilter(query);
       const rows = await db.all<ImageRow>(`SELECT id, hash, body FROM images${filter.sql} ORDER BY id`, filter.params);
-      const records = rows.map((row) => libraryRecordSchema.parse(JSON.parse(row.body)));
+      const records = rows.flatMap((row) => {
+        const record = readRecord(row.body);
+        return record ? [record] : [];
+      });
       const peak = peakRow?.peak ?? 0;
       const matched = records.filter((record) => selectionMatches(record, query.selection, peak) && facetMatches(record, query.facets));
       return { total: Number(totalRow?.n ?? 0), matched: matched.length, records: matched, maxChroma: peak };
@@ -178,12 +254,18 @@ export function createStore(db: AsyncDb, options: { wrongTagsPath?: string } = {
       await db.exec("BEGIN");
       try {
         await db.run("INSERT INTO posts (id, body) VALUES (?, ?)", [parsed.id, JSON.stringify(parsed)]);
-        for (const imageId of parsed.image_ids) {
-          const record = await read(imageId);
+        const uses = new Map<string, number>();
+        for (const imageId of parsed.image_ids) uses.set(imageId, (uses.get(imageId) ?? 0) + 1);
+        const rows =
+          uses.size === 0
+            ? []
+            : await db.all<ImageRow>(`SELECT id, hash, body FROM images WHERE id IN (${placeholders(uses.size)})`, [...uses.keys()]);
+        for (const row of rows) {
+          const record = readRecord(row.body);
           if (!record) continue;
           await write({
             ...record,
-            used_count: record.used_count + 1,
+            used_count: record.used_count + (uses.get(record.id) ?? 0),
             last_used_at: parsed.posted_at,
           });
         }
@@ -309,6 +391,37 @@ export function createStore(db: AsyncDb, options: { wrongTagsPath?: string } = {
   };
 }
 
+function readRecord(body: string): LibraryRecord | null {
+  try {
+    const value: unknown = JSON.parse(body);
+    return isRecordShape(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function isRecordShape(value: unknown): value is LibraryRecord {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === "string" && typeof record.dominant_oklch === "object" && record.dominant_oklch !== null && Array.isArray(record.palette)
+  );
+}
+
+function placeholders(count: number): string {
+  return Array.from({ length: count }, () => "?").join(", ");
+}
+
+function columnValues(record: LibraryRecord): unknown[] {
+  return [
+    record.file_path,
+    record.thumbnail_path,
+    record.sharpness,
+    record.avg_luminance,
+    record.embedding ? JSON.stringify(record.embedding) : null,
+  ];
+}
+
 function imageValues(record: LibraryRecord): unknown[] {
   const peak = Math.max(record.dominant_oklch.C, ...record.palette.map((swatch) => swatch.oklch.C));
   return [
@@ -322,6 +435,7 @@ function imageValues(record: LibraryRecord): unknown[] {
     record.dominant_oklch.L,
     Number.isFinite(peak) ? peak : 0,
     record.is_monochrome ? 1 : 0,
+    ...columnValues(record),
   ];
 }
 
@@ -342,8 +456,8 @@ function candidateFilter(query: LibraryQuery): { sql: string; params: unknown[] 
   }
   if (query.selection.type === "ids") {
     if (query.selection.ids.length === 0) clauses.push("0 = 1");
-    else {
-      clauses.push(`id IN (${query.selection.ids.map(() => "?").join(", ")})`);
+    else if (query.selection.ids.length <= ID_PARAM_LIMIT) {
+      clauses.push(`id IN (${placeholders(query.selection.ids.length)})`);
       params.push(...query.selection.ids);
     }
   }

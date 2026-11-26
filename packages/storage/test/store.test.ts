@@ -33,6 +33,70 @@ describe("sqlite library", () => {
     expect(await store.exportCsv()).toContain(first.id);
   });
 
+  it("skips a row whose body is not a record", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gallery-store-"));
+    const path = join(dir, "gallery.db");
+    const store = createStore(openSqlite(path));
+    const first = syntheticRecord(1);
+    await store.upsert(first);
+    const raw = openSqlite(path);
+    await raw.run(
+      `INSERT INTO images (id, hash, source_ref, taken_at, phash, file_size, orientation, dominant_h, dominant_l, peak_c, is_monochrome, body)
+       SELECT 'bad-row', hash || '-x', NULL, taken_at, phash, file_size, orientation, dominant_h, dominant_l, peak_c, is_monochrome, '1' FROM images LIMIT 1`,
+    );
+    const result = await store.query({ selection: { type: "all" }, facets: {} });
+    expect(result.records.map((record) => record.id)).toEqual([first.id]);
+    expect(result.total).toBe(2);
+  });
+
+  it("reads media keys, embeddings, and dedupe inputs without full records", async () => {
+    const store = createStore(openSqlite(":memory:"));
+    const first = { ...syntheticRecord(1), embedding: [0.25, -0.5, 1] };
+    const second = syntheticRecord(2);
+    await store.upsert(first);
+    await store.upsert(second);
+    expect(await store.getMedia(first.id)).toEqual({ hash: first.hash, file_path: first.file_path, thumbnail_path: first.thumbnail_path });
+    expect(await store.getMedia("missing")).toBeNull();
+    expect(await store.listEmbeddings()).toEqual([{ id: first.id, embedding: [0.25, -0.5, 1] }]);
+    expect(await store.listDedupeInputs()).toEqual(
+      [first, second]
+        .map((record) => ({ id: record.id, phash: record.phash, sharpness: record.sharpness, luminance: record.avg_luminance }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    );
+  });
+
+  it("backfills media columns for rows written before they existed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gallery-backfill-"));
+    const path = join(dir, "gallery.db");
+    const record = syntheticRecord(3);
+    await createStore(openSqlite(path)).upsert(record);
+    const raw = openSqlite(path);
+    await raw.run("UPDATE images SET file_path = NULL, thumbnail_path = NULL, sharpness = NULL, avg_luminance = NULL, embedding = NULL");
+    const reopened = createStore(openSqlite(path));
+    expect(await reopened.getMedia(record.id)).toEqual({ hash: record.hash, file_path: record.file_path, thumbnail_path: record.thumbnail_path });
+    expect((await reopened.listDedupeInputs()).map((row) => row.id)).toEqual([record.id]);
+  });
+
+  it("counts every image of a post in one batch and filters a large id selection", async () => {
+    const store = createStore(openSqlite(":memory:"));
+    const records = Array.from({ length: 3 }, (_, index) => syntheticRecord(index));
+    for (const record of records) await store.upsert(record);
+    const [a, b] = records;
+    if (!a || !b) throw new Error("missing synthetic records");
+    await store.createPost({
+      id: "post-1",
+      platform: "instagram",
+      posted_at: "2026-03-01T00:00:00.000Z",
+      image_ids: [a.id, b.id, a.id, "missing"],
+      caption_notes: null,
+    });
+    expect((await store.get(a.id))?.used_count).toBe(a.used_count + 2);
+    expect((await store.get(b.id))?.last_used_at).toBe("2026-03-01T00:00:00.000Z");
+    const ids = [a.id, ...Array.from({ length: 700 }, (_, index) => `absent-${index}`)];
+    const result = await store.query({ selection: { type: "ids", ids }, facets: {} });
+    expect(result.records.map((record) => record.id)).toEqual([a.id]);
+  });
+
   it("gives the lease to one holder at a time", async () => {
     const store = createStore(openSqlite(":memory:"));
     expect(await store.acquireLease("a", 1_000, 500)).toBe(true);
@@ -82,6 +146,7 @@ describe("postgres and objects", () => {
     const record = syntheticRecord(4);
     expect((await store.upsert(record)).status).toBe("inserted");
     expect((await store.get(record.id))?.hash).toBe(record.hash);
+    expect(await store.getMedia(record.id)).toEqual({ hash: record.hash, file_path: record.file_path, thumbnail_path: record.thumbnail_path });
   });
 
   it("stores bytes and signs an r2 request", async () => {

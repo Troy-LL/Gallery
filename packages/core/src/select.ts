@@ -1,4 +1,4 @@
-import { oklabDistance, oklchToOklab } from "./color.js";
+import { oklabDistanceSquared, oklchToOklab } from "./color.js";
 import type { Facets, Lab, LibraryQuery, LibraryRecord, Oklch, Point, Selection } from "./schema.js";
 
 export type Dot = {
@@ -8,6 +8,10 @@ export type Dot = {
   weight: number;
 };
 
+function normalizeHue(value: number): number {
+  return value >= 0 && value < 360 ? value : ((value % 360) + 360) % 360;
+}
+
 export function wheelPoint(oklch: Oklch, maxChroma: number): Point {
   const radius = maxChroma <= 1e-6 ? 0 : Math.min(1, oklch.C / maxChroma);
   const rad = (oklch.h * Math.PI) / 180;
@@ -15,10 +19,9 @@ export function wheelPoint(oklch: Oklch, maxChroma: number): Point {
 }
 
 export function hueInWedge(hue: number, start: number, end: number): boolean {
-  const norm = (value: number) => ((value % 360) + 360) % 360;
-  const current = norm(hue);
-  const from = norm(start);
-  const to = norm(end);
+  const current = normalizeHue(hue);
+  const from = normalizeHue(start);
+  const to = normalizeHue(end);
   if (from <= to) return current >= from && current <= to;
   return current >= from || current <= to;
 }
@@ -41,7 +44,7 @@ export function maxChroma(records: LibraryRecord[]): number {
   let max = 0;
   for (const record of records) {
     max = Math.max(max, record.dominant_oklch.C);
-    for (const swatch of record.palette) max = Math.max(max, swatch.oklch.C);
+    for (const swatch of record.palette ?? []) max = Math.max(max, swatch.oklch.C);
   }
   return max;
 }
@@ -54,9 +57,10 @@ export function selectionMatches(record: LibraryRecord, selection: Selection, li
       return selection.ids.includes(record.id);
     case "neighborhood":
     case "brush": {
-      const lab = oklchToOklab(record.dominant_oklch);
       const limit = selection.type === "neighborhood" ? selection.tolerance : selection.radius;
-      return oklabDistance(lab, selection.lab) <= limit;
+      if (limit < 0) return false;
+      const lab = oklchToOklab(record.dominant_oklch);
+      return oklabDistanceSquared(lab, selection.lab) <= limit * limit;
     }
     case "wedge":
       return hueInWedge(record.dominant_oklch.h, selection.startHue, selection.endHue);
@@ -67,6 +71,66 @@ export function selectionMatches(record: LibraryRecord, selection: Selection, li
       const inner = Math.min(selection.inner, selection.outer);
       const outer = Math.max(selection.inner, selection.outer);
       return radius >= inner && radius <= outer;
+    }
+    default: {
+      const unreachable: never = selection;
+      return unreachable;
+    }
+  }
+}
+
+function compileSelection(selection: Selection, libraryMaxChroma: number): (record: LibraryRecord) => boolean {
+  switch (selection.type) {
+    case "all":
+      return () => true;
+    case "ids": {
+      const idSet = new Set(selection.ids);
+      return (record) => idSet.has(record.id);
+    }
+    case "neighborhood":
+    case "brush": {
+      const limit = selection.type === "neighborhood" ? selection.tolerance : selection.radius;
+      if (limit < 0) return () => false;
+      const limitSq = limit * limit;
+      const target = selection.lab;
+      return (record) => {
+        const { L, C, h } = record.dominant_oklch;
+        const rad = (h * Math.PI) / 180;
+        const dL = L - target.L;
+        const da = C * Math.cos(rad) - target.a;
+        const db = C * Math.sin(rad) - target.b;
+        return dL * dL + da * da + db * db <= limitSq;
+      };
+    }
+    case "wedge": {
+      const from = normalizeHue(selection.startHue);
+      const to = normalizeHue(selection.endHue);
+      if (from <= to) {
+        return (record) => {
+          const current = normalizeHue(record.dominant_oklch.h);
+          return current >= from && current <= to;
+        };
+      }
+      return (record) => {
+        const current = normalizeHue(record.dominant_oklch.h);
+        return current >= from || current <= to;
+      };
+    }
+    case "lasso": {
+      const points = selection.points;
+      return (record) => pointInPolygon(wheelPoint(record.dominant_oklch, libraryMaxChroma), points);
+    }
+    case "ring": {
+      const inner = Math.min(selection.inner, selection.outer);
+      const outer = Math.max(selection.inner, selection.outer);
+      if (libraryMaxChroma <= 1e-6) {
+        const matchesZero = 0 >= inner && 0 <= outer;
+        return () => matchesZero;
+      }
+      return (record) => {
+        const radius = record.dominant_oklch.C / libraryMaxChroma;
+        return radius >= inner && radius <= outer;
+      };
     }
     default: {
       const unreachable: never = selection;
@@ -110,7 +174,16 @@ export function facetMatches(record: LibraryRecord, facets: Facets): boolean {
 export function matchLibrary(records: LibraryRecord[], query: LibraryQuery): LibraryRecord[] {
   const needsChroma = query.selection.type === "lasso" || query.selection.type === "ring";
   const peak = needsChroma ? maxChroma(records) : 0;
-  return records.filter((record) => selectionMatches(record, query.selection, peak) && facetMatches(record, query.facets));
+  const matchesSelection = compileSelection(query.selection, peak);
+  const facets = query.facets;
+  const matched: LibraryRecord[] = [];
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i];
+    if (matchesSelection(record) && facetMatches(record, facets)) {
+      matched.push(record);
+    }
+  }
+  return matched;
 }
 
 export function applySelection(current: string[], incoming: string[], mode: "replace" | "add" | "subtract"): string[] {
@@ -146,17 +219,20 @@ export class Quadtree {
   }
 
   queryCircle(x: number, y: number, radius: number): QuadItem[] {
+    if (radius < 0) return [];
     const found: QuadItem[] = [];
-    this.collectCircle(x, y, radius, found);
+    this.collectCircle(x, y, radius * radius, found);
     return found;
   }
 
-  private collectCircle(x: number, y: number, radius: number, found: QuadItem[]): void {
-    if (!this.intersectsCircle(x, y, radius)) return;
+  private collectCircle(x: number, y: number, radiusSq: number, found: QuadItem[]): void {
+    if (!this.intersectsCircle(x, y, radiusSq)) return;
     for (const item of this.items) {
-      if (Math.hypot(item.x - x, item.y - y) <= radius) found.push(item);
+      const dx = item.x - x;
+      const dy = item.y - y;
+      if (dx * dx + dy * dy <= radiusSq) found.push(item);
     }
-    for (const child of this.children) child.collectCircle(x, y, radius, found);
+    for (const child of this.children) child.collectCircle(x, y, radiusSq, found);
   }
 
   private split(): void {
@@ -180,10 +256,12 @@ export class Quadtree {
     return x >= this.bounds.x0 && x <= this.bounds.x1 && y >= this.bounds.y0 && y <= this.bounds.y1;
   }
 
-  private intersectsCircle(x: number, y: number, radius: number): boolean {
+  private intersectsCircle(x: number, y: number, radiusSq: number): boolean {
     const cx = Math.min(Math.max(x, this.bounds.x0), this.bounds.x1);
     const cy = Math.min(Math.max(y, this.bounds.y0), this.bounds.y1);
-    return Math.hypot(cx - x, cy - y) <= radius;
+    const dx = cx - x;
+    const dy = cy - y;
+    return dx * dx + dy * dy <= radiusSq;
   }
 }
 
@@ -210,11 +288,15 @@ export function reduceWheelKey(state: WheelCursor, key: string): WheelCursor {
   }
 }
 
-export function dotsFor(record: LibraryRecord, mode: "dominant" | "all", minWeight: number): Dot[] {
+export function dotsFor(
+  record: Pick<LibraryRecord, "id" | "dominant_hex" | "dominant_oklch"> & { palette?: LibraryRecord["palette"] },
+  mode: "dominant" | "all",
+  minWeight: number,
+): Dot[] {
   if (mode === "dominant") {
-    return [{ imageId: record.id, hex: record.dominant_hex, oklch: record.dominant_oklch, weight: record.palette[0]?.weight ?? 1 }];
+    return [{ imageId: record.id, hex: record.dominant_hex, oklch: record.dominant_oklch, weight: record.palette?.[0]?.weight ?? 1 }];
   }
-  return record.palette
+  return (record.palette ?? [])
     .filter((swatch) => swatch.weight >= minWeight)
     .map((swatch) => ({ imageId: record.id, hex: swatch.hex, oklch: swatch.oklch, weight: swatch.weight }));
 }
