@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import sharp from "sharp";
 import { unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
@@ -32,16 +33,64 @@ describe("local api", () => {
     expect(library.total).toBe(1);
     const exported = await app.request("/api/export", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "accept-encoding": "gzip" },
       body: JSON.stringify({ imageIds: [body.record.id], platform: "instagram", keepExif: false }),
     });
     expect(exported.status).toBe(200);
+    expect(exported.headers.get("content-type")).toBe("application/zip");
+    expect(exported.headers.get("content-encoding")).toBeNull();
     const unzipped = unzipSync(new Uint8Array(await exported.arrayBuffer()));
     const file = Object.values(unzipped)[0];
     expect(file).toBeTruthy();
     expect(Buffer.from(file ?? []).includes(Buffer.from("NOTEME"))).toBe(false);
     const health = await app.request("/api/health");
     expect(health.status).toBe(200);
+  });
+
+  it("serves slim query rows, a full record by id, cached media, and gzip json", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gallery-serve-"));
+    const app = createLocalApp({ dataDir: dir, dbPath: join(dir, "gallery.db") });
+    const jpeg = await sharp({ create: { width: 64, height: 48, channels: 3, background: { r: 30, g: 90, b: 200 } } })
+      .jpeg()
+      .toBuffer();
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(jpeg)], "blue.jpg", { type: "image/jpeg" }));
+    const imported = (await (await app.request("/api/import", { method: "POST", body: form })).json()) as { record: { id: string; hash: string } };
+    const id = imported.record.id;
+    const queryInit = {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ selection: { type: "all" }, facets: {} }),
+    };
+    const queried = (await (await app.request("/api/query", queryInit)).json()) as { records: Record<string, unknown>[] };
+    expect(queried.records).toHaveLength(1);
+    expect(queried.records[0]).toHaveProperty("dominant_oklch");
+    expect(queried.records[0]).not.toHaveProperty("answers");
+    expect(queried.records[0]).not.toHaveProperty("embedding");
+    const full = await app.request(`/api/images/${id}`);
+    expect(full.status).toBe(200);
+    const fullBody = (await full.json()) as { record: Record<string, unknown> };
+    expect(fullBody.record).toHaveProperty("answers");
+    expect(fullBody.record).not.toHaveProperty("embedding");
+    expect((await app.request("/api/images/missing")).status).toBe(404);
+    const media = await app.request(`/api/media/${id}`);
+    expect(media.status).toBe(200);
+    expect(media.headers.get("content-type")).toBe("image/jpeg");
+    expect(media.headers.get("etag")).toBe(`"${imported.record.hash}-thumb"`);
+    expect(media.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect(media.headers.get("content-encoding")).toBeNull();
+    const bytes = new Uint8Array(await media.arrayBuffer());
+    expect(media.headers.get("content-length")).toBe(String(bytes.byteLength));
+    expect(bytes[0]).toBe(0xff);
+    const cached = await app.request(`/api/media/${id}`, { headers: { "if-none-match": `"${imported.record.hash}-thumb"` } });
+    expect(cached.status).toBe(304);
+    const working = await app.request(`/api/media/${id}?kind=working`, { headers: { "if-none-match": `"${imported.record.hash}-thumb"` } });
+    expect(working.status).toBe(200);
+    expect(working.headers.get("etag")).toBe(`"${imported.record.hash}-working"`);
+    const gzipped = await app.request("/api/query", { ...queryInit, headers: { ...queryInit.headers, "accept-encoding": "gzip" } });
+    expect(gzipped.headers.get("content-encoding")).toBe("gzip");
+    const unzippedJson = JSON.parse(gunzipSync(Buffer.from(await gzipped.arrayBuffer())).toString("utf8")) as { total: number };
+    expect(unzippedJson.total).toBe(1);
   });
 
   it("lists and creates a collection", async () => {

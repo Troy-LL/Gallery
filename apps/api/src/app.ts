@@ -1,5 +1,6 @@
 import { zipSync } from "fflate";
 import { Hono } from "hono";
+import { compress } from "hono/compress";
 import {
   acceptUpload,
   answersToChips,
@@ -12,6 +13,7 @@ import {
   libraryQuerySchema,
   needsReview,
   paletteSchema,
+  toLibrarySummary,
   type FilterChip,
   type LibraryRecord,
   type PlatformConfig,
@@ -34,8 +36,11 @@ export type AppDeps = {
   pickerStart?: () => string;
 };
 
+const EXPORT_CONCURRENCY = 4;
+
 export function createApp(deps: AppDeps) {
   const app = new Hono();
+  app.use("/api/*", compress());
   app.use("/api/*", async (c, next) => {
     if (c.req.path === "/api/health") return next();
     const denied = await rejectUnauthenticated(c.req.raw.headers, deps.auth);
@@ -47,16 +52,25 @@ export function createApp(deps: AppDeps) {
   app.post("/api/query", async (c) => {
     const query = libraryQuerySchema.parse(await c.req.json());
     const result = await deps.store.query(query);
-    return c.json({ ...result, records: result.records.map(publish) });
+    return c.json({ ...result, records: result.records.map(toLibrarySummary) });
   });
-  app.get("/api/media/:id", async (c) => {
+  app.get("/api/images/:id", async (c) => {
     const record = await deps.store.get(c.req.param("id"));
     if (!record) return c.json({ error: "missing image" }, 404);
+    return c.json({ record: publish(record) });
+  });
+  app.get("/api/media/:id", async (c) => {
+    const media = await deps.store.getMedia(c.req.param("id"));
+    if (!media) return c.json({ error: "missing image" }, 404);
     const kind = c.req.query("kind") === "working" ? "working" : "thumb";
-    const key = kind === "working" ? record.file_path : record.thumbnail_path;
-    const bytes = await deps.objects.get(key);
+    const etag = `"${media.hash}-${kind}"`;
+    const cacheHeaders = { etag, "cache-control": "private, max-age=31536000, immutable" };
+    if (etagMatches(c.req.header("if-none-match"), etag)) return new Response(null, { status: 304, headers: cacheHeaders });
+    const bytes = await deps.objects.get(kind === "working" ? media.file_path : media.thumbnail_path);
     if (!bytes) return c.json({ error: "missing bytes" }, 404);
-    return new Response(blobOf(bytes, "image/jpeg"));
+    return new Response(bytes as Uint8Array<ArrayBuffer>, {
+      headers: { ...cacheHeaders, "content-type": "image/jpeg", "content-length": String(bytes.byteLength) },
+    });
   });
   app.post("/api/import", async (c) => {
     if (!deps.importBytes) return c.json({ error: "import runs on the desktop importer" }, 501);
@@ -78,14 +92,18 @@ export function createApp(deps: AppDeps) {
     const config = deps.platforms.find((item) => item.id === platform);
     if (!config) return c.json({ error: "unknown platform" }, 400);
     if (body.keepExif && !deps.exportBytes) return c.json({ error: "keeping exif runs on the desktop importer" }, 501);
+    const encoded = await mapLimit(imageIds, EXPORT_CONCURRENCY, async (id) => {
+      const media = await deps.store.getMedia(id);
+      if (!media) return null;
+      const stored = await deps.objects.get(media.file_path);
+      if (!stored) return null;
+      return deps.exportBytes ? deps.exportBytes(stored, config.export_px, body.keepExif === true) : stored;
+    });
     const files: Record<string, Uint8Array> = {};
     const kept: string[] = [];
     for (const [index, id] of imageIds.entries()) {
-      const record = await deps.store.get(id);
-      if (!record) continue;
-      const stored = await deps.objects.get(record.file_path);
-      if (!stored) continue;
-      const bytes = deps.exportBytes ? await deps.exportBytes(stored, config.export_px, body.keepExif === true) : stored;
+      const bytes = encoded[index];
+      if (!bytes) continue;
       files[`${platform}/${String(index + 1).padStart(2, "0")}.jpg`] = bytes;
       kept.push(id);
     }
@@ -97,9 +115,9 @@ export function createApp(deps: AppDeps) {
       image_ids: kept,
       caption_notes: null,
     });
-    const zipped = zipSync(files);
-    return new Response(blobOf(zipped, "application/zip"), {
-      headers: { "content-disposition": `attachment; filename="${platform}.zip"` },
+    const zipped = zipSync(files, { level: 0 });
+    return new Response(zipped as Uint8Array<ArrayBuffer>, {
+      headers: { "content-type": "application/zip", "content-disposition": `attachment; filename="${platform}.zip"` },
     });
   });
   app.post("/api/curation", async (c) => {
@@ -142,22 +160,13 @@ export function createApp(deps: AppDeps) {
     return c.json({ chips });
   });
   app.get("/api/similar/:id", async (c) => {
-    const record = await deps.store.get(c.req.param("id"));
-    if (!record?.embedding) return c.json({ matches: [] });
-    const rows = (await deps.store.list())
-      .filter((item) => item.id !== record.id && item.embedding)
-      .map((item) => ({ id: item.id, embedding: item.embedding ?? [] }));
-    return c.json({ matches: knn(record.embedding, rows, 8) });
+    const id = c.req.param("id");
+    const rows = await deps.store.listEmbeddings();
+    const target = rows.find((row) => row.id === id);
+    if (!target) return c.json({ matches: [] });
+    return c.json({ matches: knn(target.embedding, rows.filter((row) => row.id !== id), 8) });
   });
-  app.get("/api/duplicates", async (c) => {
-    const rows = (await deps.store.list()).map((record) => ({
-      id: record.id,
-      phash: record.phash,
-      sharpness: record.sharpness,
-      luminance: record.avg_luminance,
-    }));
-    return c.json({ groups: groupNearDuplicates(rows) });
-  });
+  app.get("/api/duplicates", async (c) => c.json({ groups: groupNearDuplicates(await deps.store.listDedupeInputs()) }));
   app.get("/api/review", async (c) => {
     const records = (await deps.store.list()).filter(needsReview).map(publish);
     return c.json({ records });
@@ -185,10 +194,26 @@ export function createApp(deps: AppDeps) {
   return app;
 }
 
-function blobOf(bytes: Uint8Array, type: string): Blob {
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  return new Blob([copy], { type });
+function etagMatches(header: string | undefined, etag: string): boolean {
+  if (!header) return false;
+  return header.split(",").some((tag) => {
+    const trimmed = tag.trim();
+    return trimmed === "*" || trimmed.replace(/^W\//, "") === etag;
+  });
+}
+
+async function mapLimit<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const drain = async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await task(items[index] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, drain));
+  return results;
 }
 
 function publish(record: LibraryRecord): Omit<LibraryRecord, "embedding"> {

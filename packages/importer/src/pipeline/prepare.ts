@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import exifr from "exifr";
-import sharp from "sharp";
+import sharp, { type Sharp } from "sharp";
 import { deterministicEmbedding, dominantOf, type LibraryRecord, type SourceType } from "@gallery/core";
-import { aspectBucket, averageHash, orientationOf, resolutionTier, summarizePixels, type Pixel } from "./metrics.js";
+import { aspectBucket, averageHash, boxAverage8x8, orientationOf, resolutionTier, summarizePixels, type Pixel } from "./metrics.js";
 import { isBaselineJpeg, targetJevSize } from "./size.js";
 
 export type PreparedStill = {
@@ -13,6 +13,7 @@ export type PreparedStill = {
 };
 
 const VIDEO = new Set([".mov", ".mp4", ".m4v"]);
+const SAMPLE_SIDE = 64;
 
 export function isIgnoredMedia(filename: string): boolean {
   const dot = filename.lastIndexOf(".");
@@ -26,32 +27,31 @@ export async function prepareStill(
   limits: { workingPx: number } = { workingPx: 2048 },
 ): Promise<PreparedStill> {
   const hash = createHash("sha256").update(input).digest("hex");
-  const upright = sharp(input, { failOn: "none", limitInputPixels: 80_000_000 }).rotate();
-  const working = await upright
-    .clone()
+  const exifPending = readExif(input);
+  const decoded = await sharp(input, { failOn: "none", limitInputPixels: 80_000_000 })
+    .rotate()
     .resize({ width: limits.workingPx, height: limits.workingPx, fit: "inside", withoutEnlargement: true })
-    .jpeg({ progressive: false, quality: 82 })
+    .flatten()
+    .toColourspace("srgb")
+    .raw()
     .toBuffer({ resolveWithObject: true });
-  const thumbnail = await sharp(working.data).resize({ width: 320, height: 320, fit: "inside" }).jpeg({ quality: 70, progressive: false }).toBuffer();
-  const sample = await sharp(working.data).resize(64, 64, { fit: "fill" }).removeAlpha().raw().toBuffer();
-  const hashSample = await sharp(working.data).resize(8, 8, { fit: "fill" }).greyscale().raw().toBuffer();
-  const pixels = pixelsFrom(sample, 64, 64);
-  const gray = new Uint8Array(64 * 64);
-  for (let index = 0; index < pixels.length; index += 1) {
-    const pixel = pixels[index];
-    gray[index] = pixel ? Math.round(0.2126 * pixel.r + 0.7152 * pixel.g + 0.0722 * pixel.b) : 0;
-  }
-  const summary = summarizePixels(pixels, 64, 64, gray);
-  const dominant = dominantOf(summary.palette);
-  const exif = await readExif(input);
-  const width = working.info.width;
-  const height = working.info.height;
-  const jev = await encodeJev(working.data);
+  const { width, height, channels } = decoded.info;
+  const fromWorking = () => sharp(decoded.data, { raw: { width, height, channels } });
+  const [working, thumbnail, sample, jev, exif] = await Promise.all([
+    fromWorking().jpeg({ progressive: false, quality: 82 }).toBuffer(),
+    fromWorking().resize({ width: 320, height: 320, fit: "inside" }).jpeg({ quality: 70, progressive: false }).toBuffer(),
+    fromWorking().resize(SAMPLE_SIDE, SAMPLE_SIDE, { fit: "fill" }).raw().toBuffer(),
+    encodeJevFrom(fromWorking(), width, height),
+    exifPending,
+  ]);
   if (!isBaselineJpeg(jev)) throw new Error("jev copy is not baseline jpeg");
+  const { pixels, gray } = samplePixels(sample, channels);
+  const summary = summarizePixels(pixels, SAMPLE_SIDE, SAMPLE_SIDE, gray);
+  const dominant = dominantOf(summary.palette);
   const addedAt = source.addedAt ?? new Date().toISOString();
   const takenAt = exif.takenAt ?? source.takenAt ?? null;
   return {
-    working: working.data,
+    working,
     thumbnail,
     jev,
     partial: {
@@ -59,15 +59,15 @@ export async function prepareStill(
       height,
       orientation: orientationOf(width, height),
       aspect_ratio: aspectBucket(width, height),
-      file_size: working.data.length + thumbnail.length,
+      file_size: working.length + thumbnail.length,
       hash,
-      phash: averageHash(hashSample),
+      phash: averageHash(boxAverage8x8(gray, SAMPLE_SIDE, SAMPLE_SIDE)),
       created_at: takenAt ?? addedAt,
       added_at: addedAt,
       media_type: "image/jpeg",
       source_type: source.sourceType,
       source_ref: source.sourceRef,
-      embedding: deterministicEmbedding(working.data),
+      embedding: deterministicEmbedding(working),
       taken_at: takenAt,
       lat: exif.lat,
       lon: exif.lon,
@@ -113,8 +113,12 @@ export function finishRecord(partial: PreparedStill["partial"], id: string, file
 
 export async function encodeJev(input: Buffer): Promise<Buffer> {
   const meta = await sharp(input).metadata();
-  const fit = targetJevSize(meta.width ?? 1, meta.height ?? 1);
-  let image = sharp(input).resize(fit.width, fit.height, { fit: "fill" });
+  return encodeJevFrom(sharp(input), meta.width ?? 1, meta.height ?? 1);
+}
+
+function encodeJevFrom(source: Sharp, width: number, height: number): Promise<Buffer> {
+  const fit = targetJevSize(width, height);
+  let image = source.resize(fit.width, fit.height, { fit: "fill" });
   if (fit.padLeft || fit.padRight || fit.padTop || fit.padBottom) {
     image = image.extend({
       left: fit.padLeft,
@@ -154,10 +158,17 @@ async function readExif(input: Buffer): Promise<{ takenAt: string | null; lat: n
   }
 }
 
-function pixelsFrom(raw: Buffer, width: number, height: number): Pixel[] {
-  const pixels: Pixel[] = [];
-  for (let index = 0; index < width * height; index += 1) {
-    pixels.push({ r: raw[index * 3] ?? 0, g: raw[index * 3 + 1] ?? 0, b: raw[index * 3 + 2] ?? 0 });
+function samplePixels(raw: Buffer, channels: number): { pixels: Pixel[]; gray: Uint8Array } {
+  const count = SAMPLE_SIDE * SAMPLE_SIDE;
+  const pixels: Pixel[] = new Array(count);
+  const gray = new Uint8Array(count);
+  for (let index = 0; index < count; index += 1) {
+    const offset = index * channels;
+    const r = raw[offset] ?? 0;
+    const g = raw[offset + 1] ?? 0;
+    const b = raw[offset + 2] ?? 0;
+    pixels[index] = { r, g, b };
+    gray[index] = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
   }
-  return pixels;
+  return { pixels, gray };
 }

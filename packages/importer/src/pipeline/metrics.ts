@@ -31,7 +31,10 @@ export function aspectBucket(width: number, height: number): AspectBucket {
 }
 
 export function laplacianVariance(gray: Uint8Array, width: number, height: number): number {
-  const values: number[] = [];
+  if (width < 3 || height < 3) return 0;
+  const values = new Float64Array((width - 2) * (height - 2));
+  let sum = 0;
+  let cursor = 0;
   for (let y = 1; y < height - 1; y += 1) {
     for (let x = 1; x < width - 1; x += 1) {
       const center = gray[y * width + x] ?? 0;
@@ -41,12 +44,15 @@ export function laplacianVariance(gray: Uint8Array, width: number, height: numbe
         (gray[y * width + (x - 1)] ?? 0) +
         (gray[y * width + (x + 1)] ?? 0) -
         4 * center;
-      values.push(value);
+      values[cursor] = value;
+      sum += value;
+      cursor += 1;
     }
   }
-  if (values.length === 0) return 0;
-  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  return values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+  const mean = sum / values.length;
+  let deviation = 0;
+  for (const value of values) deviation += (value - mean) ** 2;
+  return deviation / values.length;
 }
 
 export function classifySharpness(variance: number): SharpnessLevel {
@@ -71,11 +77,22 @@ export function averageHash(gray: Uint8Array): string {
   return hex;
 }
 
-export function temperatureOf(pixels: Pixel[]): Temperature {
-  if (pixels.length === 0) return "neutral";
-  let score = 0;
-  for (const pixel of pixels) score += pixel.r - pixel.b;
-  const mean = score / pixels.length;
+export function boxAverage8x8(gray: Uint8Array, width: number, height: number): Uint8Array {
+  if (width % 8 !== 0 || height % 8 !== 0 || gray.length !== width * height) throw new Error("box average expects a grid divisible by 8");
+  const cellWidth = width / 8;
+  const cellHeight = height / 8;
+  const sums = new Uint32Array(64);
+  for (let y = 0; y < height; y += 1) {
+    const row = Math.floor(y / cellHeight) * 8;
+    for (let x = 0; x < width; x += 1) sums[row + Math.floor(x / cellWidth)]! += gray[y * width + x] ?? 0;
+  }
+  const area = cellWidth * cellHeight;
+  return Uint8Array.from(sums, (sum) => Math.round(sum / area));
+}
+
+function temperatureFrom(pixels: number, warmth: number): Temperature {
+  if (pixels === 0) return "neutral";
+  const mean = warmth / pixels;
   if (mean > 12) return "warm";
   if (mean < -12) return "cool";
   return "neutral";
@@ -93,27 +110,48 @@ export function summarizePixels(pixels: Pixel[], width: number, height: number, 
   composition: string[];
 } {
   const palette = extractPalette(pixels, 5);
-  const lumas = pixels.map((pixel) => (0.2126 * pixel.r + 0.7152 * pixel.g + 0.0722 * pixel.b) / 255);
-  const avgLuminance = lumas.reduce((sum, value) => sum + value, 0) / lumas.length;
-  const contrast = Math.sqrt(lumas.reduce((sum, value) => sum + (value - avgLuminance) ** 2, 0) / lumas.length);
-  const chromas = pixels.map((pixel) => rgbToOklab(pixel.r, pixel.g, pixel.b)).map((lab) => Math.hypot(lab.a, lab.b));
-  const saturation = chromas.reduce((sum, value) => sum + value, 0) / chromas.length;
-  const variance = laplacianVariance(gray, width, height);
+  const count = pixels.length;
   const corner = averageCorner(pixels, width, height);
+  const lumas = new Float64Array(count);
+  let lumaSum = 0;
+  let chromaSum = 0;
+  let warmth = 0;
   let nearCorner = 0;
-  for (const pixel of pixels) {
-    if (Math.hypot(pixel.r - corner.r, pixel.g - corner.g, pixel.b - corner.b) < 18) nearCorner += 1;
+  let weight = 0;
+  let sx = 0;
+  let sy = 0;
+  for (let index = 0; index < count; index += 1) {
+    const pixel = pixels[index];
+    if (!pixel) continue;
+    const luma = (0.2126 * pixel.r + 0.7152 * pixel.g + 0.0722 * pixel.b) / 255;
+    lumas[index] = luma;
+    lumaSum += luma;
+    const lab = rgbToOklab(pixel.r, pixel.g, pixel.b);
+    chromaSum += Math.hypot(lab.a, lab.b);
+    warmth += pixel.r - pixel.b;
+    const distance = Math.hypot(pixel.r - corner.r, pixel.g - corner.g, pixel.b - corner.b);
+    if (distance < 18) nearCorner += 1;
+    if (distance >= 24 && index < width * height) {
+      weight += distance;
+      sx += (index % width) * distance;
+      sy += Math.floor(index / width) * distance;
+    }
   }
+  const avgLuminance = lumaSum / count;
+  let lumaDeviation = 0;
+  for (const luma of lumas) lumaDeviation += (luma - avgLuminance) ** 2;
+  const saturation = chromaSum / count;
+  const variance = laplacianVariance(gray, width, height);
   return {
     palette,
     avgLuminance,
-    contrast,
-    temperature: temperatureOf(pixels),
+    contrast: Math.sqrt(lumaDeviation / count),
+    temperature: temperatureFrom(count, warmth),
     isMonochrome: saturation < 0.02,
     saturation,
     sharpness: classifySharpness(variance),
-    negativeSpace: nearCorner / pixels.length,
-    composition: compositionOf(pixels, width, height, gray, variance),
+    negativeSpace: nearCorner / count,
+    composition: compositionOf(gray, width, height, variance, weight > 0 ? { x: sx / weight / width, y: sy / weight / height } : null),
   };
 }
 
@@ -129,7 +167,7 @@ function averageCorner(pixels: Pixel[], width: number, height: number): Pixel {
   return { r: acc.r / indexes.length, g: acc.g / indexes.length, b: acc.b / indexes.length };
 }
 
-function compositionOf(pixels: Pixel[], width: number, height: number, gray: Uint8Array, variance: number): string[] {
+function compositionOf(gray: Uint8Array, width: number, height: number, variance: number, centroid: { x: number; y: number } | null): string[] {
   const labels: string[] = [];
   const mid = Math.floor(width / 2);
   let diff = 0;
@@ -144,26 +182,7 @@ function compositionOf(pixels: Pixel[], width: number, height: number, gray: Uin
   }
   if (count > 0 && diff / count < 8) labels.push("symmetry");
   labels.push(variance > 40 ? "busy" : "clean");
-  const corner = averageCorner(pixels, width, height);
-  let weight = 0;
-  let sx = 0;
-  let sy = 0;
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const pixel = pixels[y * width + x];
-      if (!pixel) continue;
-      const distance = Math.hypot(pixel.r - corner.r, pixel.g - corner.g, pixel.b - corner.b);
-      if (distance < 24) continue;
-      weight += distance;
-      sx += x * distance;
-      sy += y * distance;
-    }
-  }
-  if (weight > 0) {
-    const cx = sx / weight / width;
-    const cy = sy / weight / height;
-    if (Math.hypot(cx - 0.5, cy - 0.5) < 0.18) labels.push("centered");
-  }
+  if (centroid && Math.hypot(centroid.x - 0.5, centroid.y - 0.5) < 0.18) labels.push("centered");
   return labels;
 }
 
